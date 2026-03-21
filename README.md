@@ -6,7 +6,7 @@ Next.js + Fastify + PostgreSQL + Prisma 모노레포. 시세는 기본 **목(moc
 
 - Node.js 20+ (권장 22 — 루트 `.nvmrc`)
 - npm 10+ (npm workspaces)
-- Docker (로컬 PostgreSQL용, 선택)
+- PostgreSQL 16+ (로컬 설치 또는 원격 인스턴스)
 
 ## 빠른 시작
 
@@ -22,22 +22,18 @@ Next.js + Fastify + PostgreSQL + Prisma 모노레포. 시세는 기본 **목(moc
    NEXT_PUBLIC_WS_URL=ws://localhost:4000/ws/quotes
    ```
 
-2. DB 기동 및 마이그레이션
+2. PostgreSQL 준비 및 마이그레이션
+
+   PC(또는 원격)에 PostgreSQL을 띄우고, DB·사용자·비밀번호를 만든 뒤 루트 `.env`의 `DATABASE_URL`을 그에 맞게 설정합니다.
 
    ```bash
-   docker compose up -d
    npm install
    npm run db:generate
-   npm exec --workspace=@stock-monitoring/db -- prisma migrate deploy
+   npm run db:migrate:deploy
    npm run db:seed
    ```
 
-   `DATABASE_URL`이 셸에 없으면 루트 `.env`에만 두고, 마이그레이션 전에 한 줄로:
-
-   ```bash
-   set DATABASE_URL=postgresql://stock:stock@localhost:5432/stock_monitoring
-   npm exec --workspace=@stock-monitoring/db -- prisma migrate deploy
-   ```
+   Prisma 스크립트는 **루트 `.env`를 먼저 로드**합니다. `DATABASE_URL`은 반드시 루트 `.env`에 두면 됩니다.
 
 3. 개발 서버
 
@@ -60,7 +56,8 @@ Next.js + Fastify + PostgreSQL + Prisma 모노레포. 시세는 기본 **목(moc
 |------|------|
 | `npm run dev` | api + web 동시 실행 (`concurrently`) |
 | `npm run db:generate` | Prisma Client 생성 |
-| `npm run db:migrate` | 개발 마이그레이션 |
+| `npm run db:migrate` | 개발 마이그레이션 (`migrate dev`) |
+| `npm run db:migrate:deploy` | 배포/CI용 `migrate deploy` (루트 `.env` 로드) |
 | `npm run db:seed` | 시드 데이터 |
 | `npm run lint` | ESLint (`eslint.config.mjs`) |
 | `npm run typecheck` | 전 패키지 `tsc --noEmit` (**선행:** `npm run db:generate`) |
@@ -69,6 +66,6 @@ Next.js + Fastify + PostgreSQL + Prisma 모노레포. 시세는 기본 **목(moc
 ## 문서
 
 - `DEVELOPMENT_TODO.md` — 단계별 개발 체크리스트
-- `DEPLOYMENT.md` — 배포·Docker·CI 메모
+- `DEPLOYMENT.md` — 배포·CI 메모
 - `docs/PHASE0_OPERATIONS.md` — Phase 0 잠정 운영·API 메모
 - `docs/DECISION_LOG.md` — 외부 API·인프라·운영 **합의안**(개정 시 여기만 갱신)

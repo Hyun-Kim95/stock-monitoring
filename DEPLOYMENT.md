@@ -15,20 +15,13 @@
 
 ```bash
 npm run db:generate
-npm exec --workspace=@stock-monitoring/db -- prisma migrate deploy
+npm run db:migrate:deploy
 npm run db:seed   # 최초만
 ```
 
-## API Docker (선택)
+## API 프로세스
 
-저장소 루트에서:
-
-```bash
-docker build -f Dockerfile.api -t stock-monitoring-api .
-docker run --env-file .env -p 4000:4000 stock-monitoring-api
-```
-
-이미지는 `npm ci` 후 `prisma generate`, API는 `tsx`로 기동합니다(`@stock-monitoring/db`가 TS 소스를 export하므로).
+프로덕션에서는 호스트에서 `npm ci` → `npm run build`(필요 시) → API는 `apps/api`에서 `npm start` 또는 프로세스 매니저(systemd, PM2 등)로 `tsx`/`node` 기동을 권장합니다. 환경 변수는 루트 `.env` 또는 호스트 시크릿으로 주입합니다.
 
 ## 리버스 프록시 (권장)
 

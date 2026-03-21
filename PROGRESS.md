@@ -13,7 +13,7 @@
 - [x] `packages/shared` — Zod 시세 스냅샷·WS 메시지·API 입력 스키마
 - [x] `packages/db` — Prisma 스키마( PRD 모델 ) + 시드 스크립트 + 초기 마이그레이션 SQL
 - [x] 루트 스크립트: `dev`(concurrently), `db:generate`, `db:migrate`, `db:push`, `db:seed`, `lint`, `typecheck`, `test`
-- [x] `.env.example`, `docker-compose.yml`(PostgreSQL 16), `.gitignore`, `README.md`, `.nvmrc`
+- [x] `.env.example`, `.gitignore`, `README.md`, `.nvmrc`
 - [x] ESLint flat `eslint.config.mjs`, Vitest 단위 테스트(api/shared)
 
 ### Phase 2 — DB
@@ -53,7 +53,7 @@
 
 ### Phase 8~9
 - [x] 단위 테스트: shared Zod, 뉴스 처리, 재연결 지연
-- [x] `Dockerfile.api`, `DEPLOYMENT.md`, GitHub Actions `ci.yml`
+- [x] `DEPLOYMENT.md`, GitHub Actions `ci.yml`
 - [ ] REST 통합/E2E, 프로덕션 프로세스·로그 운영 문서 전부
 
 ### Phase 0 (선행 의사결정)
@@ -65,9 +65,9 @@
 
 ## 바로 할 일 (로컬에서 한 번에 동작시키기)
 
-1. PostgreSQL 기동: `docker compose up -d`
-2. 루트에 `.env` 복사 (`.env.example` 참고), `DATABASE_URL` 확인
-3. `npm install` → `npm run db:generate` → `npm exec --workspace=@stock-monitoring/db -- prisma migrate deploy` → `npm run db:seed`
+1. PostgreSQL 기동(로컬 또는 원격), DB·유저 생성 후 루트 `.env`의 `DATABASE_URL` 맞추기
+2. 루트에 `.env` 복사 (`.env.example` 참고)
+3. `npm install` → `npm run db:generate` → `npm run db:migrate:deploy` → `npm run db:seed`
 4. `npm run dev` (또는 API/Web 각각 `-w`)
 5. `apps/web/.env.local`에 `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL` 설정
 

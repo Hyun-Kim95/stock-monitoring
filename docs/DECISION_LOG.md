@@ -59,10 +59,10 @@
 | 항목 | 내용 |
 |------|------|
 | 상태 | **locked** (MVP) |
-| 형태 | **단일 VM(또는 1대 컨테이너 호스트)** 에 `web` + `api` 프로세스, PostgreSQL은 동일 호스트 또는 관리형 DB |
-| 로컬 | `docker-compose.yml` — Postgres만 (기존) |
+| 형태 | **단일 VM** 에 `web` + `api` 프로세스, PostgreSQL은 동일 호스트 또는 관리형 DB |
+| 로컬 | PostgreSQL 로컬 설치(또는 원격); `DATABASE_URL`로 연결 |
 | TLS | **Caddy 또는 Nginx** 종단, WS 업그레이드 허용 |
-| API 이미지 | `Dockerfile.api` (참고용) |
+| API | 호스트 프로세스(`tsx`/`node`) + 프로세스 매니저 권장 |
 
 ---
 
