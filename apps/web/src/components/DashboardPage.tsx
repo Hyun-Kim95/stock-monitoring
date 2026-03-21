@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { apiGet } from "@/lib/api-client";
+import { ApiError, apiGet } from "@/lib/api-client";
 import { useQuotesWebSocket } from "@/hooks/useQuotesWebSocket";
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
 
@@ -63,10 +63,21 @@ export function DashboardPage() {
     setNewsErr(null);
     apiGet<{ news: NewsItem[] }>(`/stocks/${selectedId}/news`)
       .then((d) => {
-        if (!cancelled) setNews(d.news);
+        if (!cancelled) {
+          setNews(d.news);
+          setNewsErr(null);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setNewsErr("뉴스를 불러오지 못했습니다.");
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setNews([]);
+        if (e instanceof ApiError) {
+          const body = e.body as { error?: { code?: string; message?: string } } | null;
+          const msg = body?.error?.message;
+          setNewsErr(msg ?? e.message ?? "뉴스를 불러오지 못했습니다.");
+        } else {
+          setNewsErr("뉴스를 불러오지 못했습니다.");
+        }
       });
     return () => {
       cancelled = true;
@@ -254,12 +265,14 @@ export function DashboardPage() {
         </div>
 
         <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
-          <div className="panel-h">관련 뉴스 (목데이터)</div>
+          <div className="panel-h">관련 뉴스</div>
           <div className="panel-b" style={{ flex: 1 }}>
             {!selectedId ? (
               <div style={{ color: "var(--muted-foreground)" }}>종목을 선택하세요.</div>
             ) : newsErr ? (
               <div style={{ color: "var(--down)" }}>{newsErr}</div>
+            ) : news.length === 0 ? (
+              <div style={{ color: "var(--muted-foreground)" }}>표시할 뉴스가 없습니다.</div>
             ) : (
               <ul style={{ margin: 0, paddingLeft: 16 }}>
                 {news.map((n) => (

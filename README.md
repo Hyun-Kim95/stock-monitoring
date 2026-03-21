@@ -1,6 +1,6 @@
 # 국내 주식 모니터링 대시보드 (MVP)
 
-Next.js + Fastify + PostgreSQL + Prisma 모노레포. 시세는 기본 **목(mock)** 이고, DB 설정 `market_data.provider=kis`와 `.env`의 KIS 키가 있으면 **한국투자증권 REST 현재가 폴링**으로 전환됩니다. 뉴스는 네이버 Client ID/Secret이 있으면 **실검색**, 없으면 목 피드입니다(자세한 변수명은 `.env.example`).
+Next.js + Fastify + PostgreSQL + Prisma 모노레포. 시세는 기본 **목(mock)** 이고, DB 설정 `market_data.provider=kis`와 `.env`의 KIS 키가 있으면 **한국투자증권 REST 현재가 폴링**으로 전환됩니다. 뉴스는 네이버 Client ID/Secret이 있으면 **실검색**(0건이면 빈 목록, API 실패 시 오류 메시지 표시), 없으면 **목 피드**입니다(`.env.example`).
 
 ## 요구 사항
 

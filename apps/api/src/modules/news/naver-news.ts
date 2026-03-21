@@ -24,6 +24,22 @@ function parsePubDate(pub?: string): string {
   return Number.isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
 }
 
+function hintForNaverHttpError(status: number, body: string): string {
+  let errorCode: string | undefined;
+  try {
+    errorCode = (JSON.parse(body) as { errorCode?: string }).errorCode;
+  } catch {
+    /* ignore */
+  }
+  if (status === 401 && (errorCode === "024" || body.includes("Scope"))) {
+    return " — 조치: 네이버 개발자센터(developers.naver.com) → 내 애플리케이션 → 해당 앱 → **API 설정**에서 **검색** 사용을 추가했는지 확인하고, `.env`의 ID/Secret이 그 앱 것인지 확인하세요.";
+  }
+  if (status === 401) {
+    return " — 조치: Client ID/Secret 오타 또는 다른 애플리케이션의 키를 쓰고 있지 않은지 확인하세요.";
+  }
+  return "";
+}
+
 export function buildNaverNewsQuery(stock: { name: string; searchAlias: string | null }): string {
   const parts = [stock.name.trim()];
   if (stock.searchAlias) {
@@ -54,9 +70,15 @@ export async function fetchNaverNews(
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`네이버 뉴스 API ${res.status}: ${text.slice(0, 200)}`);
+    const hint = hintForNaverHttpError(res.status, text);
+    throw new Error(`네이버 뉴스 HTTP ${res.status}: ${text.slice(0, 240)}${hint}`);
   }
-  const json = JSON.parse(text) as NaverNewsResponse;
+  let json: NaverNewsResponse;
+  try {
+    json = JSON.parse(text) as NaverNewsResponse;
+  } catch {
+    throw new Error(`네이버 뉴스 응답 JSON 파싱 실패: ${text.slice(0, 120)}`);
+  }
   if (json.errorCode) {
     throw new Error(`네이버 뉴스 ${json.errorCode}: ${json.errorMessage ?? ""}`);
   }

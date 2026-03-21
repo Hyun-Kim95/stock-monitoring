@@ -56,11 +56,14 @@ export async function registerNewsRoutes(app: FastifyInstance, ctx: Ctx) {
       try {
         const q = buildNaverNewsQuery(stock);
         items = await fetchNaverNews(naverId, naverSecret, q, limit);
-        if (items.length === 0) {
-          items = buildMockNewsForStock(stock, limit);
-        }
-      } catch {
-        items = buildMockNewsForStock(stock, limit);
+      } catch (e) {
+        const detail = e instanceof Error ? e.message : String(e);
+        return reply.status(502).send({
+          error: {
+            code: "NEWS_UPSTREAM_FAILED",
+            message: detail.slice(0, 500),
+          },
+        });
       }
     } else {
       items = buildMockNewsForStock(stock, limit);

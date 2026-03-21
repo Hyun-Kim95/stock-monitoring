@@ -32,7 +32,7 @@
 | 상태 | **provisional** (Client ID 발급·약관 검토 후 확정) |
 | 1순위 | **네이버 오픈API — 뉴스 검색** (`openapi.naver.com`, 검색 API의 `news` 타입) |
 | 검색어 구성 | `stock.name` + `searchAlias`(쉼표 분리) + `NewsSourceRule` (이미 코드 반영 방향) |
-| 그때까지 | **구현됨:** `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET` 있으면 네이버 뉴스 검색, 실패·빈 결과·미설정 시 목 뉴스; 규칙 필터·URL 중복 제거·TTL 동일 |
+| 그때까지 | **구현됨:** 키 있으면 네이버 검색; **0건이면 빈 목록**(목으로 채우지 않음); **실패 시 HTTP 502** `NEWS_UPSTREAM_FAILED` + 원인 메시지. 키 없을 때만 목 뉴스. 규칙 필터·URL 중복 제거·TTL 동일 |
 | 약관 | 상업 이용·일일 호출 한도·표시 의무는 **법무/운영 검토 후** 체크리스트 완료 |
 
 ### 중복·노이즈 (운영 규칙)

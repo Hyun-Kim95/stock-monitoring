@@ -123,8 +123,7 @@ export async function createApiApplication(env: Env) {
   });
 
   await app.register(websocket);
-  app.get("/ws/quotes", { websocket: true }, (connection, _req) => {
-    const socket = connection.socket;
+  app.get("/ws/quotes", { websocket: true }, (socket, _req) => {
     const ws = {
       send: (data: string) => socket.send(data),
       close: () => socket.close(),

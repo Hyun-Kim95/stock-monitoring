@@ -1,13 +1,12 @@
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
 import type { MarketDataProvider } from "./types.js";
 
-function sessionNow(): "OPEN" | "CLOSED" {
-  const d = new Date();
-  const day = d.getDay();
+/** 국내 장 구간(한국시간 09:00~15:30, 주말 제외) — KIS 프로바이더와 동일 기준 */
+function sessionNowKst(): "OPEN" | "CLOSED" {
+  const kst = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+  const day = kst.getDay();
   if (day === 0 || day === 6) return "CLOSED";
-  const h = d.getHours();
-  const m = d.getMinutes();
-  const mins = h * 60 + m;
+  const mins = kst.getHours() * 60 + kst.getMinutes();
   const open = 9 * 60;
   const close = 15 * 60 + 30;
   return mins >= open && mins <= close ? "OPEN" : "CLOSED";
@@ -19,12 +18,14 @@ export function createMockMarketProvider(): MarketDataProvider {
   const listeners = new Set<(quotes: QuoteSnapshot[]) => void>();
 
   function tick() {
-    const marketSession = sessionNow();
+    const marketSession = sessionNowKst();
     const batch: QuoteSnapshot[] = [];
     for (const [code, s] of state) {
-      const delta = (Math.random() - 0.5) * (s.base * 0.002);
-      s.price = Math.max(100, Math.round((s.price + delta) * 100) / 100);
-      s.volume += Math.floor(Math.random() * 5000);
+      if (marketSession === "OPEN") {
+        const delta = (Math.random() - 0.5) * (s.base * 0.002);
+        s.price = Math.max(100, Math.round((s.price + delta) * 100) / 100);
+        s.volume += Math.floor(Math.random() * 5000);
+      }
       const change = Math.round((s.price - s.base) * 100) / 100;
       const changeRate = s.base ? Math.round((change / s.base) * 10000) / 100 : 0;
       batch.push({
@@ -58,7 +59,7 @@ export function createMockMarketProvider(): MarketDataProvider {
       timer = undefined;
     },
     getQuotes() {
-      const marketSession = sessionNow();
+      const marketSession = sessionNowKst();
       const out: QuoteSnapshot[] = [];
       for (const [code, s] of state) {
         const change = Math.round((s.price - s.base) * 100) / 100;
