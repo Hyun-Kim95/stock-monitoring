@@ -1,0 +1,25 @@
+{
+  "name": "@stock-monitoring/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "prisma generate"
+  },
+  "dependencies": {
+    "@prisma/client": "6.5.0",
+    "effect": "^3.13.12"
+  },
+  "devDependencies": {
+    "prisma": "6.5.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

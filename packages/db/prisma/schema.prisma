@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum NewsRuleScope {
+  GLOBAL
+  STOCK
+}
+
+model Stock {
+  id            String   @id @default(uuid())
+  code          String   @unique @map("stock_code")
+  name          String   @map("stock_name")
+  searchAlias   String?  @map("search_alias")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  themeMaps     StockThemeMap[]
+  newsRules     NewsSourceRule[]
+
+  @@index([isActive])
+  @@map("stocks")
+}
+
+model Theme {
+  id          String   @id @default(uuid())
+  name        String   @unique @map("theme_name")
+  description String?  @map("description")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  stockMaps   StockThemeMap[]
+
+  @@map("themes")
+}
+
+model StockThemeMap {
+  id        String   @id @default(uuid())
+  stockId   String   @map("stock_id")
+  themeId   String   @map("theme_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  stock     Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  theme     Theme    @relation(fields: [themeId], references: [id], onDelete: Cascade)
+
+  @@unique([stockId, themeId])
+  @@index([stockId])
+  @@index([themeId])
+  @@map("stock_theme_maps")
+}
+
+model NewsSourceRule {
+  id              String          @id @default(uuid())
+  scope           NewsRuleScope
+  stockId         String?         @map("stock_id")
+  includeKeyword  String?         @map("include_keyword")
+  excludeKeyword  String?         @map("exclude_keyword")
+  priority        Int             @default(0)
+  isActive        Boolean         @default(true) @map("is_active")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  stock           Stock?          @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  @@index([scope, isActive])
+  @@index([stockId])
+  @@map("news_source_rules")
+}
+
+model SystemSetting {
+  id           String   @id @default(uuid())
+  settingKey   String   @unique @map("setting_key")
+  settingValue String   @map("setting_value")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
