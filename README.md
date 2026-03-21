@@ -12,15 +12,8 @@ Next.js + Fastify + PostgreSQL + Prisma 모노레포. 시세는 기본 **목(moc
 
 1. 환경 변수
 
-   루트에 `.env`를 만들고 `.env.example`을 참고해 `DATABASE_URL` 등을 채웁니다.  
-   API 프로세스는 루트 `.env`를 읽도록 실행할 수 있습니다(아래 스크립트).
-
-   `apps/web/.env.local`:
-
-   ```env
-   NEXT_PUBLIC_API_URL=http://localhost:4000
-   NEXT_PUBLIC_WS_URL=ws://localhost:4000/ws/quotes
-   ```
+   루트에 `.env`를 만들고 `.env.example`을 참고해 `DATABASE_URL`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL` 등을 채웁니다.  
+   API·Prisma·Next(웹) 모두 이 루트 `.env`(및 선택적 루트 `.env.local`)를 읽습니다.
 
 2. PostgreSQL 준비 및 마이그레이션
 
@@ -48,7 +41,7 @@ Next.js + Fastify + PostgreSQL + Prisma 모노레포. 시세는 기본 **목(moc
    - 대시보드: http://localhost:3000  
    - 관리자: http://localhost:3000/admin/stocks  
 
-`ADMIN_API_TOKEN`을 설정한 경우, 관리자 화면에서 변경 요청을내려면 브라우저 `localStorage.setItem('adminToken','<토큰>')` 또는 `NEXT_PUBLIC_ADMIN_TOKEN`을 동일 값으로 맞춥니다. 비워 두면 로컬에서 관리자 API 인증이 생략됩니다.
+`ADMIN_API_TOKEN`을 설정한 경우, 루트 `.env`의 `NEXT_PUBLIC_ADMIN_TOKEN`을 같은 값으로 맞춘 뒤 웹을 다시 띄웁니다. 둘 다 비우면 로컬에서 관리자 API 인증이 생략됩니다.
 
 ## 스크립트 (루트)
 

@@ -19,6 +19,8 @@ const EnvSchema = z.object({
   /** 비우면 모의투자: openapivts…29443 */
   KIS_REST_BASE_URL: z.string().optional(),
   KIS_TR_ID_PRICE: z.string().optional(),
+  /** inquire-price 종목 간 최소 간격(ms). 비우면 400. KIS 초당 건수 제한(EGW00201) 완화 */
+  KIS_QUOTE_REQUEST_GAP_MS: z.coerce.number().int().positive().max(10_000).optional(),
   /** 네이버 검색(뉴스) — 없으면 목 뉴스 */
   NAVER_CLIENT_ID: z.string().optional(),
   NAVER_CLIENT_SECRET: z.string().optional(),

@@ -26,11 +26,23 @@ type NewsItem = {
 
 type SortKey = "name" | "price" | "changeRate" | "volume";
 
+function formatForeignNetVol(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return "—";
+  const sign = v > 0 ? "+" : "";
+  return `${sign}${v.toLocaleString("ko-KR")}`;
+}
+
+function formatForeignPct(v: number | null | undefined): string {
+  if (v == null || Number.isNaN(v)) return "—";
+  return `${v.toFixed(3)}%`;
+}
+
 export function DashboardPage() {
   const { quotes, connected, statusMsg } = useQuotesWebSocket();
   const [stocks, setStocks] = useState<StockApi[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [themeFilter, setThemeFilter] = useState<string | null>(null);
+  /** 비어 있으면 테마 필터 없음. 값이 있으면 해당 테마 중 하나라도 있는 종목만 표시(OR). */
+  const [themeFilterIds, setThemeFilterIds] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("changeRate");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [filterText, setFilterText] = useState("");
@@ -53,6 +65,44 @@ export function DashboardPage() {
   }, [refreshStocks]);
 
   const selected = stocks.find((s) => s.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const s = stocks.find((x) => x.id === selectedId);
+    if (!s) {
+      setSelectedId(null);
+      return;
+    }
+    const q = filterText.trim().toLowerCase();
+    if (themeFilterIds.length > 0 && !s.themes.some((t) => themeFilterIds.includes(t.id))) {
+      setSelectedId(null);
+      return;
+    }
+    if (
+      q &&
+      !s.code.toLowerCase().includes(q) &&
+      !s.name.toLowerCase().includes(q) &&
+      !(s.searchAlias?.toLowerCase().includes(q) ?? false)
+    ) {
+      setSelectedId(null);
+    }
+  }, [selectedId, stocks, themeFilterIds, filterText]);
+
+  const portfolioThemes = useMemo(() => {
+    const m = new Map<string, ThemeBrief>();
+    for (const s of stocks) {
+      for (const t of s.themes) {
+        if (!m.has(t.id)) m.set(t.id, t);
+      }
+    }
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  }, [stocks]);
+
+  function toggleThemeFilter(themeId: string) {
+    setThemeFilterIds((prev) =>
+      prev.includes(themeId) ? prev.filter((id) => id !== themeId) : [...prev, themeId],
+    );
+  }
 
   useEffect(() => {
     if (!selectedId) {
@@ -87,8 +137,8 @@ export function DashboardPage() {
   const rows = useMemo(() => {
     const q = filterText.trim().toLowerCase();
     let list = stocks.filter((s) => {
-      if (themeFilter) {
-        if (!s.themes.some((t) => t.id === themeFilter)) return false;
+      if (themeFilterIds.length > 0) {
+        if (!s.themes.some((t) => themeFilterIds.includes(t.id))) return false;
       }
       if (!q) return true;
       return (
@@ -123,7 +173,7 @@ export function DashboardPage() {
     });
 
     return list;
-  }, [stocks, filterText, themeFilter, sortKey, sortDir, quotes]);
+  }, [stocks, filterText, themeFilterIds, sortKey, sortDir, quotes]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -168,7 +218,7 @@ export function DashboardPage() {
         style={{
           flex: 1,
           display: "grid",
-          gridTemplateColumns: "minmax(380px,1fr) minmax(220px,0.35fr) minmax(280px,0.5fr)",
+          gridTemplateColumns: "minmax(560px,1fr) minmax(220px,0.35fr) minmax(280px,0.5fr)",
           gap: 8,
           padding: 8,
           minHeight: 0,
@@ -176,7 +226,7 @@ export function DashboardPage() {
       >
         <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
           <div className="panel-h">관심종목</div>
-          <div className="panel-b" style={{ flex: 1 }}>
+          <div className="panel-b" style={{ flex: 1, overflow: "auto" }}>
             <table className="data-table">
               <thead>
                 <tr>
@@ -190,6 +240,12 @@ export function DashboardPage() {
                   <th className="num" style={{ cursor: "pointer" }} onClick={() => toggleSort("volume")}>
                     거래량 {sortKey === "volume" ? (sortDir === "asc" ? "▲" : "▼") : ""}
                   </th>
+                  <th className="num" title="당일 외국인 순매수 수량(주). KIS 현재가 API 기준">
+                    외인순매수
+                  </th>
+                  <th className="num" title="외국인 소진율(%)">
+                    외인%
+                  </th>
                   <th>세션</th>
                 </tr>
               </thead>
@@ -199,6 +255,8 @@ export function DashboardPage() {
                   const sel = s.id === selectedId;
                   const cr = q?.changeRate ?? null;
                   const crCls = cr === null ? "" : cr > 0 ? "up" : cr < 0 ? "down" : "";
+                  const fn = q?.foreignNetBuyVolume ?? null;
+                  const fnCls = fn === null ? "" : fn > 0 ? "up" : fn < 0 ? "down" : "";
                   return (
                     <tr
                       key={s.id}
@@ -215,6 +273,8 @@ export function DashboardPage() {
                         {q ? `${q.changeRate >= 0 ? "+" : ""}${q.changeRate.toFixed(2)}%` : "—"}
                       </td>
                       <td className="num">{q ? q.volume.toLocaleString("ko-KR") : "—"}</td>
+                      <td className={`num ${fnCls}`}>{q ? formatForeignNetVol(q.foreignNetBuyVolume) : "—"}</td>
+                      <td className="num">{q ? formatForeignPct(q.foreignOwnershipPct) : "—"}</td>
                       <td>{q?.marketSession ?? "—"}</td>
                     </tr>
                   );
@@ -227,36 +287,37 @@ export function DashboardPage() {
         <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
           <div className="panel-h">테마</div>
           <div className="panel-b" style={{ flex: 1 }}>
-            {!selected ? (
-              <div style={{ color: "var(--muted-foreground)" }}>종목을 선택하세요.</div>
+            <div style={{ marginBottom: 10, color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.4 }}>
+              관심종목에 연결된 테마입니다. 클릭하면 왼쪽 목록에{" "}
+              <strong style={{ color: "var(--text)" }}>포함(OR)</strong>·다시 클릭하면 조건에서 뺍니다.
+            </div>
+            {portfolioThemes.length === 0 ? (
+              <div style={{ color: "var(--muted-foreground)" }}>표시할 테마가 없습니다. 종목에 테마를 연결하세요.</div>
             ) : (
               <>
-                <div style={{ marginBottom: 8, color: "var(--muted-foreground)", fontSize: 12 }}>
-                  선택: <strong style={{ color: "var(--text)" }}>{selected.name}</strong>
-                </div>
-                {selected.themes.length === 0 ? (
-                  <div style={{ color: "var(--muted-foreground)" }}>연결된 테마 없음</div>
-                ) : (
-                  selected.themes.map((t) => (
+                {portfolioThemes.map((t) => {
+                  const on = themeFilterIds.includes(t.id);
+                  return (
                     <div key={t.id} style={{ marginBottom: 6 }}>
                       <button
                         type="button"
-                        onClick={() => setThemeFilter((f) => (f === t.id ? null : t.id))}
+                        onClick={() => toggleThemeFilter(t.id)}
                         style={{
                           width: "100%",
                           textAlign: "left",
-                          background: themeFilter === t.id ? "rgba(88,166,255,0.2)" : undefined,
+                          background: on ? "rgba(88,166,255,0.22)" : undefined,
+                          border: on ? "1px solid rgba(88,166,255,0.45)" : "1px solid transparent",
                         }}
                       >
                         {t.name}
-                        {themeFilter === t.id ? " ✓" : ""}
+                        {on ? " · 필터 적용" : ""}
                       </button>
                     </div>
-                  ))
-                )}
-                {themeFilter ? (
-                  <button type="button" style={{ marginTop: 8 }} onClick={() => setThemeFilter(null)}>
-                    테마 필터 해제
+                  );
+                })}
+                {themeFilterIds.length > 0 ? (
+                  <button type="button" style={{ marginTop: 10 }} onClick={() => setThemeFilterIds([])}>
+                    테마 필터 전체 해제
                   </button>
                 ) : null}
               </>
@@ -266,6 +327,15 @@ export function DashboardPage() {
 
         <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
           <div className="panel-h">관련 뉴스</div>
+          <div style={{ padding: "0 12px 6px", fontSize: 11, color: "var(--muted-foreground)" }}>
+            최근 약 3개월(90일) 이내 기사만 표시합니다.
+            {selected ? (
+              <>
+                {" "}
+                · 선택: <strong style={{ color: "var(--text)" }}>{selected.name}</strong>
+              </>
+            ) : null}
+          </div>
           <div className="panel-b" style={{ flex: 1 }}>
             {!selectedId ? (
               <div style={{ color: "var(--muted-foreground)" }}>종목을 선택하세요.</div>

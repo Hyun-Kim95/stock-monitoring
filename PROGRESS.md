@@ -49,7 +49,7 @@
 ### Phase 7 — 관리자 UI
 - [x] `/admin/stocks`, `/admin/themes`, `/admin/news-rules`, `/admin/settings`
 - [x] Bearer: `ADMIN_API_TOKEN` 설정 시 필요, 미설정 시 로컬에서 생략
-- [x] 브라우저 `localStorage.adminToken` 또는 `NEXT_PUBLIC_ADMIN_TOKEN` 지원
+- [x] 관리자 Bearer: 루트 `.env`의 `NEXT_PUBLIC_ADMIN_TOKEN` (Next `next.config`에서 루트 env 로드)
 
 ### Phase 8~9
 - [x] 단위 테스트: shared Zod, 뉴스 처리, 재연결 지연
@@ -69,7 +69,7 @@
 2. 루트에 `.env` 복사 (`.env.example` 참고)
 3. `npm install` → `npm run db:generate` → `npm run db:migrate:deploy` → `npm run db:seed`
 4. `npm run dev` (또는 API/Web 각각 `-w`)
-5. `apps/web/.env.local`에 `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL` 설정
+5. 루트 `.env`에 `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL` 등 웹용 키 포함(별도 `apps/web/.env` 불필요)
 
 품질: `npm run db:generate` 후 `npm run typecheck` / `npm run lint` / `npm run test`
 

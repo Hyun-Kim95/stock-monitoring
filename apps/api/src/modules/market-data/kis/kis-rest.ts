@@ -88,3 +88,25 @@ export function parseKisNumber(v: string | undefined): number {
   const n = Number(String(v).replace(/,/g, ""));
   return n;
 }
+
+/**
+ * 전일대비(원)·등락률(%): 값 문자열에 `+`/`-`가 없으면 `prdy_vrss_sign`으로 부호를 붙입니다.
+ * KIS 출력속성: 1 상한, 2 상승, 3 보합, 4 하한, 5 하락.
+ */
+export function parseKisSignedFluctuation(
+  valueStr: string | undefined,
+  signStr: string | undefined,
+): number {
+  const raw = String(valueStr ?? "").trim();
+  if (raw === "") return NaN;
+  const normalized = raw.replace(/,/g, "");
+  if (/^[+-]/.test(normalized)) {
+    return Number(normalized);
+  }
+  const n = Number(normalized);
+  if (Number.isNaN(n)) return NaN;
+  const sign = String(signStr ?? "").trim();
+  if (sign === "4" || sign === "5") return -Math.abs(n);
+  if (sign === "1" || sign === "2") return Math.abs(n);
+  return n;
+}

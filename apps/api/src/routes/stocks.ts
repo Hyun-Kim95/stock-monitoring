@@ -118,9 +118,11 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
       }
     }
     try {
+      const { code, ...rest } = parsed.data;
+      const data = code !== undefined ? { ...rest, code } : rest;
       const updated = await prisma.stock.update({
         where: { id },
-        data: parsed.data,
+        data,
       });
       await reloadMarket();
       return { stock: updated };

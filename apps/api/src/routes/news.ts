@@ -3,7 +3,14 @@ import type { PrismaClient } from "@prisma/client";
 import { buildMockNewsForStock } from "../modules/news/mock-news.js";
 import { buildNaverNewsQuery, fetchNaverNews } from "../modules/news/naver-news.js";
 import type { NewsMemoryCache } from "../modules/news/news-cache.js";
-import { applyNewsRules, dedupeNewsByUrl } from "../modules/news/process.js";
+import {
+  applyNewsRules,
+  dedupeNewsByUrl,
+  filterNewsPublishedWithinDays,
+} from "../modules/news/process.js";
+
+/** 관련 뉴스: 최근 약 3개월(90일) */
+const NEWS_MAX_AGE_DAYS = 90;
 
 type Ctx = {
   prisma: PrismaClient;
@@ -34,7 +41,8 @@ export async function registerNewsRoutes(app: FastifyInstance, ctx: Ctx) {
 
     const cached = newsCache.get(stock.id);
     if (cached) {
-      return { news: cached };
+      const filtered = filterNewsPublishedWithinDays(cached, NEWS_MAX_AGE_DAYS);
+      return { news: filtered.slice(0, limit) };
     }
 
     const rules = await prisma.newsSourceRule.findMany({
@@ -68,8 +76,10 @@ export async function registerNewsRoutes(app: FastifyInstance, ctx: Ctx) {
     } else {
       items = buildMockNewsForStock(stock, limit);
     }
+    items = filterNewsPublishedWithinDays(items, NEWS_MAX_AGE_DAYS);
     items = dedupeNewsByUrl(items);
     items = applyNewsRules(items, ruleInput, stock.id);
+    items = items.slice(0, limit);
 
     newsCache.set(stock.id, items, ttlMs);
     return { news: items };

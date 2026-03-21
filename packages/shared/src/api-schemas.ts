@@ -1,15 +1,26 @@
 import { z } from "zod";
+import { normalizeKrxStockCode } from "./stock-code.js";
 
 export const NewsRuleScopeSchema = z.enum(["GLOBAL", "STOCK"]);
 
 export const StockCreateSchema = z.object({
-  code: z.string().min(1).max(20),
+  code: z
+    .string()
+    .min(1)
+    .max(20)
+    .transform((c) => normalizeKrxStockCode(c)),
   name: z.string().min(1).max(200),
   searchAlias: z.string().max(2000).optional().nullable(),
   isActive: z.boolean().optional(),
 });
 
 export const StockUpdateSchema = z.object({
+  code: z
+    .string()
+    .min(1)
+    .max(20)
+    .transform((c) => normalizeKrxStockCode(c))
+    .optional(),
   name: z.string().min(1).max(200).optional(),
   searchAlias: z.string().max(2000).optional().nullable(),
   isActive: z.boolean().optional(),

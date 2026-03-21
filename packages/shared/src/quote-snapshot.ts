@@ -11,6 +11,10 @@ export const QuoteSnapshotSchema = z.object({
   volume: z.number(),
   timestamp: z.string(),
   marketSession: MarketSessionSchema,
+  /** 당일 외국인 순매수 수량(주). KIS `frgn_ntby_qty`. 미제공 시 null. */
+  foreignNetBuyVolume: z.number().nullable().optional(),
+  /** 외국인 소진율(%). KIS `hts_frgn_ehrt`. 미제공 시 null. */
+  foreignOwnershipPct: z.number().nullable().optional(),
 });
 
 export type QuoteSnapshot = z.infer<typeof QuoteSnapshotSchema>;

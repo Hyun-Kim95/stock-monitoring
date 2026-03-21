@@ -12,12 +12,7 @@ export class ApiError extends Error {
 }
 
 function adminHeaders(): HeadersInit {
-  const token =
-    typeof window !== "undefined"
-      ? window.localStorage.getItem("adminToken")
-      : null;
-  const envToken = process.env.NEXT_PUBLIC_ADMIN_TOKEN;
-  const t = token || envToken;
+  const t = process.env.NEXT_PUBLIC_ADMIN_TOKEN;
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 

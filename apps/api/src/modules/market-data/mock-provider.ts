@@ -14,7 +14,17 @@ function sessionNowKst(): "OPEN" | "CLOSED" {
 
 export function createMockMarketProvider(): MarketDataProvider {
   let timer: ReturnType<typeof setInterval> | undefined;
-  const state = new Map<string, { name: string; price: number; base: number; volume: number }>();
+  const state = new Map<
+    string,
+    {
+      name: string;
+      price: number;
+      base: number;
+      volume: number;
+      foreignNetBuyVolume: number;
+      foreignOwnershipPct: number;
+    }
+  >();
   const listeners = new Set<(quotes: QuoteSnapshot[]) => void>();
 
   function tick() {
@@ -25,6 +35,11 @@ export function createMockMarketProvider(): MarketDataProvider {
         const delta = (Math.random() - 0.5) * (s.base * 0.002);
         s.price = Math.max(100, Math.round((s.price + delta) * 100) / 100);
         s.volume += Math.floor(Math.random() * 5000);
+        s.foreignNetBuyVolume += Math.floor((Math.random() - 0.48) * 8000);
+        s.foreignOwnershipPct = Math.max(
+          0,
+          Math.min(45, Math.round((s.foreignOwnershipPct + (Math.random() - 0.5) * 0.08) * 100) / 100),
+        );
       }
       const change = Math.round((s.price - s.base) * 100) / 100;
       const changeRate = s.base ? Math.round((change / s.base) * 10000) / 100 : 0;
@@ -37,6 +52,8 @@ export function createMockMarketProvider(): MarketDataProvider {
         volume: s.volume,
         timestamp: new Date().toISOString(),
         marketSession,
+        foreignNetBuyVolume: s.foreignNetBuyVolume,
+        foreignOwnershipPct: s.foreignOwnershipPct,
       });
     }
     for (const cb of listeners) {
@@ -50,7 +67,14 @@ export function createMockMarketProvider(): MarketDataProvider {
       state.clear();
       for (const { code, name } of symbols) {
         const base = 50000 + Math.floor(Math.random() * 100000);
-        state.set(code, { name, price: base, base, volume: Math.floor(Math.random() * 1_000_000) });
+        state.set(code, {
+          name,
+          price: base,
+          base,
+          volume: Math.floor(Math.random() * 1_000_000),
+          foreignNetBuyVolume: Math.floor((Math.random() - 0.5) * 400_000),
+          foreignOwnershipPct: Math.round((8 + Math.random() * 32) * 100) / 100,
+        });
       }
       timer = setInterval(tick, 1000);
     },
@@ -73,6 +97,8 @@ export function createMockMarketProvider(): MarketDataProvider {
           volume: s.volume,
           timestamp: new Date().toISOString(),
           marketSession,
+          foreignNetBuyVolume: s.foreignNetBuyVolume,
+          foreignOwnershipPct: s.foreignOwnershipPct,
         });
       }
       return out;

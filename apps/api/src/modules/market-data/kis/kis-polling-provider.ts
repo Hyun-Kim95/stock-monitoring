@@ -1,9 +1,11 @@
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
+import { normalizeKrxStockCode } from "@stock-monitoring/shared";
 import type { MarketDataProvider } from "../types.js";
 import {
   fetchKisAccessToken,
   fetchKisInquirePrice,
   parseKisNumber,
+  parseKisSignedFluctuation,
 } from "./kis-rest.js";
 
 function sessionNowKst(): "OPEN" | "CLOSED" {
@@ -21,6 +23,10 @@ function sessionNowKst(): "OPEN" | "CLOSED" {
 
 type TokenState = { token: string; expiresAt: number };
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export type KisPollingOptions = {
   baseUrl: string;
   appKey: string;
@@ -28,6 +34,8 @@ export type KisPollingOptions = {
   trIdPrice: string;
   /** 폴링 주기 ms */
   pollIntervalMs: number;
+  /** 종목별 inquire-price 사이 대기(ms). KIS 초당 거래건수 제한 대응 */
+  quoteRequestGapMs: number;
 };
 
 /**
@@ -43,6 +51,7 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
   let tokenState: TokenState | null = null;
   let connected = false;
   let statusMessage = "KIS 초기화";
+  let tickInFlight = false;
 
   async function ensureToken(): Promise<string> {
     const now = Date.now();
@@ -58,39 +67,61 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
 
   function mapOutput(code: string, name: string, out: Record<string, string | undefined>): QuoteSnapshot {
     const price = parseKisNumber(out.stck_prpr ?? out.STCK_PRPR);
-    const change = parseKisNumber(out.prdy_vrss ?? out.PRDY_VRSS);
-    const changeRate = parseKisNumber(out.prdy_ctrt ?? out.PRDY_CTRT);
+    if (Number.isNaN(price)) {
+      throw new Error("stck_prpr 없음/파싱 실패");
+    }
+    const prdySign = out.prdy_vrss_sign ?? out.PRDY_VRSS_SIGN;
+    const change = parseKisSignedFluctuation(out.prdy_vrss ?? out.PRDY_VRSS, prdySign);
+    const changeRate = parseKisSignedFluctuation(out.prdy_ctrt ?? out.PRDY_CTRT, prdySign);
     const volume = parseKisNumber(out.acml_vol ?? out.ACML_VOL);
+    const frgnNet = parseKisNumber(out.frgn_ntby_qty ?? out.FRGN_NTBY_QTY);
+    const frgnPct = parseKisNumber(out.hts_frgn_ehrt ?? out.HTS_FRGN_EHRT);
     return {
       symbol: code,
       name: (out.hts_kor_isnm ?? out.HTS_KOR_ISNM ?? name).trim() || name,
-      price: Number.isNaN(price) ? 0 : price,
+      price,
       change: Number.isNaN(change) ? 0 : change,
       changeRate: Number.isNaN(changeRate) ? 0 : changeRate,
       volume: Number.isNaN(volume) ? 0 : Math.floor(volume),
       timestamp: new Date().toISOString(),
       marketSession: sessionNowKst(),
+      foreignNetBuyVolume: Number.isNaN(frgnNet) ? null : Math.trunc(frgnNet),
+      /** API 원값 유지 — 앱마다 소수 자릿수만 다름 */
+      foreignOwnershipPct: Number.isNaN(frgnPct) ? null : frgnPct,
     };
   }
 
   async function tick() {
     if (symbols.length === 0) return;
+    if (tickInFlight) return;
+    tickInFlight = true;
     try {
       const token = await ensureToken();
       const batch: QuoteSnapshot[] = [];
-      for (const s of symbols) {
+      const gap = Math.max(0, opts.quoteRequestGapMs);
+      let hitRateLimit = false;
+      for (let i = 0; i < symbols.length; i++) {
+        const s = symbols[i]!;
+        if (i > 0) await sleep(gap);
         try {
+          const kisIscd = normalizeKrxStockCode(s.code);
           const out = await fetchKisInquirePrice(
             opts.baseUrl,
             token,
             opts.appKey,
             opts.appSecret,
-            s.code,
+            kisIscd,
             opts.trIdPrice,
           );
           batch.push(mapOutput(s.code, s.name, out));
         } catch (e) {
-          statusMessage = `KIS ${s.code} 오류: ${String(e).slice(0, 120)}`;
+          const msg = String(e);
+          const rateLimited =
+            msg.includes("EGW00201") || msg.includes("초당 거래건수") || msg.includes("거래건수를 초과");
+          if (rateLimited) hitRateLimit = true;
+          statusMessage = rateLimited
+            ? `KIS 호출 한도 초과(초당 건수). .env KIS_QUOTE_REQUEST_GAP_MS(현재 ${gap}ms)를 늘리거나 market_data.poll_interval_ms를 올리세요.`
+            : `KIS ${s.code} 오류: ${msg.slice(0, 120)}`;
           const prev = lastQuotes.find((q) => q.symbol === s.code);
           if (prev) batch.push(prev);
         }
@@ -98,13 +129,15 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
       if (batch.length > 0) {
         lastQuotes = batch;
         connected = true;
-        statusMessage = "KIS 연결 (REST 폴링)";
+        if (!hitRateLimit) statusMessage = "KIS 연결 (REST 폴링)";
         for (const cb of listeners) cb(batch);
       }
     } catch (e) {
       connected = false;
       statusMessage = `KIS 토큰/통신 실패: ${String(e).slice(0, 160)}`;
       for (const cb of listeners) cb(lastQuotes);
+    } finally {
+      tickInFlight = false;
     }
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyNewsRules, dedupeNewsByUrl } from "./process.js";
+import { applyNewsRules, dedupeNewsByUrl, filterNewsPublishedWithinDays } from "./process.js";
 
 describe("dedupeNewsByUrl", () => {
   it("URL 중복 제거", () => {
@@ -9,6 +9,29 @@ describe("dedupeNewsByUrl", () => {
       { id: "3", title: "c", source: "s", publishedAt: "", url: "https://x/2" },
     ];
     expect(dedupeNewsByUrl(items)).toHaveLength(2);
+  });
+});
+
+describe("filterNewsPublishedWithinDays", () => {
+  it("90일 밖 기사 제외", () => {
+    const now = Date.now();
+    const items = [
+      {
+        id: "1",
+        title: "a",
+        source: "s",
+        publishedAt: new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        url: "https://x/1",
+      },
+      {
+        id: "2",
+        title: "b",
+        source: "s",
+        publishedAt: new Date(now - 100 * 24 * 60 * 60 * 1000).toISOString(),
+        url: "https://x/2",
+      },
+    ];
+    expect(filterNewsPublishedWithinDays(items, 90).map((x) => x.id)).toEqual(["1"]);
   });
 });
 

@@ -9,6 +9,16 @@ export type NewsRuleInput = {
   isActive: boolean;
 };
 
+/** `publishedAt`(ISO) 기준 최근 `maxAgeDays`일 이내만 유효. 파싱 불가·누락은 제외. */
+export function filterNewsPublishedWithinDays(items: NewsItem[], maxAgeDays: number): NewsItem[] {
+  const ms = maxAgeDays * 24 * 60 * 60 * 1000;
+  const cutoff = Date.now() - ms;
+  return items.filter((item) => {
+    const t = Date.parse(item.publishedAt);
+    return !Number.isNaN(t) && t >= cutoff;
+  });
+}
+
 /** URL 기준 중복 제거(먼저 나온 항목 유지) */
 export function dedupeNewsByUrl(items: NewsItem[]): NewsItem[] {
   const seen = new Set<string>();

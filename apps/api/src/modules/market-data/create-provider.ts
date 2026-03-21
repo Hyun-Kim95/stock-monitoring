@@ -15,12 +15,14 @@ export function createMarketDataProvider(
   if (wantKis && key && secret) {
     const base = (env.KIS_REST_BASE_URL?.trim() || DEFAULT_KIS_BASE).replace(/\/$/, "");
     const trId = env.KIS_TR_ID_PRICE?.trim() || "FHKST01010100";
+    const gap = env.KIS_QUOTE_REQUEST_GAP_MS ?? 400;
     return createKisPollingProvider({
       baseUrl: base,
       appKey: key,
       appSecret: secret,
       trIdPrice: trId,
       pollIntervalMs: opts.pollIntervalMs,
+      quoteRequestGapMs: Math.max(50, Math.min(5000, gap)),
     });
   }
   return createMockMarketProvider();

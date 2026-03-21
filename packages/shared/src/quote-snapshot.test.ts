@@ -12,6 +12,8 @@ describe("QuoteSnapshotSchema", () => {
       volume: 1e6,
       timestamp: new Date().toISOString(),
       marketSession: "OPEN" as const,
+      foreignNetBuyVolume: 12000,
+      foreignOwnershipPct: 52.3,
     };
     expect(() => QuoteSnapshotSchema.parse(q)).not.toThrow();
   });

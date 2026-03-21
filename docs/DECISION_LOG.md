@@ -11,7 +11,7 @@
 |------|------|
 | 상태 | **provisional** (모의·실전 앱키 발급 후 확정) |
 | 1순위 | **한국투자증권 KIS Developers** (국내 주식 REST/WebSocket, OAuth2 `appkey`/`appsecret` 흐름) |
-| 그때까지 | 기본 시드는 `mock`; **구현됨:** `market_data.provider=kis` + `.env`의 `KIS_APP_KEY`/`KIS_APP_SECRET`이 있으면 REST 현재가 폴링, 없거나 설정이 mock이면 목 시세 |
+| 그때까지 | 기본 시드는 `mock`; **구현됨:** `market_data.provider=kis` + `.env`의 `KIS_APP_KEY`/`KIS_APP_SECRET`이 있으면 REST 현재가 폴링, 없거나 설정이 mock이면 목 시세. 현재가 응답의 **외국인 순매수 수량·소진율**(`frgn_ntby_qty`, `hts_frgn_ehrt`)을 `QuoteSnapshot`에 매핑해 대시보드 표시 |
 | 대안 | 타 증권사 Open API, 유료 시세 벤더 (스키마는 `QuoteSnapshot`으로 정규화) |
 | 장애 시 | 목 프로바이더로 폴백(설정 키로 전환) 검토 |
 
