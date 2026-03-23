@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, apiGet } from "@/lib/api-client";
 import { useQuotesWebSocket } from "@/hooks/useQuotesWebSocket";
+import { PriceChartPanel } from "@/components/PriceChartPanel";
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
 
 type ThemeBrief = { id: string; name: string };
@@ -282,6 +283,30 @@ export function DashboardPage() {
               </tbody>
             </table>
           </div>
+          {selected ? (
+            <div
+              style={{
+                borderTop: "1px solid var(--border)",
+                padding: 12,
+                flexShrink: 0,
+                minHeight: 240,
+                background: "var(--background)",
+              }}
+            >
+              <PriceChartPanel stockId={selected.id} stockName={selected.name} />
+            </div>
+          ) : (
+            <div
+              style={{
+                borderTop: "1px solid var(--border)",
+                padding: 12,
+                fontSize: 12,
+                color: "var(--muted-foreground)",
+              }}
+            >
+              종목을 선택하면 가격 추이 차트(분·일·월·년)가 표시됩니다.
+            </div>
+          )}
         </div>
 
         <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>

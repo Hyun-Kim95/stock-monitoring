@@ -5,17 +5,25 @@ import {
 } from "@stock-monitoring/shared";
 import type { PrismaClient } from "@prisma/client";
 import type { preHandlerHookHandler } from "fastify";
+import type { Env } from "../config.js";
 import { sendZodError } from "../lib/errors.js";
 import { countActiveStocks, getMaxActiveStocks } from "../lib/stock-limits.js";
+import {
+  maybeBackfillKisChartHistory,
+  maybeBackfillKisMinuteToday,
+} from "../modules/history/kis-chart-backfill.js";
+import type { ChartGranularity, ChartRange } from "@stock-monitoring/shared";
+import { fetchChart } from "../modules/history/quote-history.js";
 
 type Ctx = {
   prisma: PrismaClient;
   adminPre: preHandlerHookHandler;
   reloadMarket: () => Promise<void>;
+  env: Env;
 };
 
 export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
-  const { prisma, adminPre, reloadMarket } = ctx;
+  const { prisma, adminPre, reloadMarket, env } = ctx;
 
   app.get("/stocks", async () => {
     const rows = await prisma.stock.findMany({
@@ -39,6 +47,57 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
             name: m.theme.name,
           })),
       })),
+    };
+  });
+
+  app.get("/stocks/:id/chart", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const q = request.query as { granularity?: string; range?: string };
+    const rawG = q.granularity ?? "day";
+    const rawR = q.range ?? "normal";
+    const allowedG: ChartGranularity[] = ["minute", "day", "month", "year"];
+    const allowedR: ChartRange[] = ["compact", "normal", "deep", "max"];
+    if (!allowedG.includes(rawG as ChartGranularity)) {
+      return reply.status(400).send({
+        error: {
+          code: "BAD_REQUEST",
+          message: "query granularity=minute | day | month | year",
+        },
+      });
+    }
+    if (!allowedR.includes(rawR as ChartRange)) {
+      return reply.status(400).send({
+        error: {
+          code: "BAD_REQUEST",
+          message: "query range=compact | normal | deep | max",
+        },
+      });
+    }
+    const granularity = rawG as ChartGranularity;
+    const range = rawR as ChartRange;
+    const stock = await prisma.stock.findUnique({ where: { id } });
+    if (!stock) {
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
+    }
+    const provRow = await prisma.systemSetting.findUnique({
+      where: { settingKey: "market_data.provider" },
+    });
+    const useKis = provRow?.settingValue?.trim().toLowerCase() === "kis";
+    if (useKis) {
+      if (granularity === "minute") {
+        await maybeBackfillKisMinuteToday(prisma, env, stock.code);
+      }
+      await maybeBackfillKisChartHistory(prisma, env, stock.code);
+    }
+    const { candles, meta } = await fetchChart(prisma, stock.code, granularity, range);
+    return {
+      stockId: stock.id,
+      code: stock.code,
+      name: stock.name,
+      granularity,
+      range,
+      candles,
+      meta,
     };
   });
 

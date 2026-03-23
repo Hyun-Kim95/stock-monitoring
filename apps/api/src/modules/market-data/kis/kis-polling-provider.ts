@@ -8,23 +8,45 @@ import {
   parseKisSignedFluctuation,
 } from "./kis-rest.js";
 
-function sessionNowKst(): "OPEN" | "CLOSED" {
-  const d = new Date();
-  const kst = new Date(d.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-  const day = kst.getDay();
-  if (day === 0 || day === 6) return "CLOSED";
-  const h = kst.getHours();
-  const m = kst.getMinutes();
-  const mins = h * 60 + m;
-  const open = 9 * 60;
-  const close = 15 * 60 + 30;
-  return mins >= open && mins <= close ? "OPEN" : "CLOSED";
+type SessionState = "OPEN" | "CLOSED" | "PRE" | "AFTER";
+type SessionSlot = "OFF" | "PRE" | "REGULAR" | "NXT" | "AFTER";
+
+function kstSessionSlotNow(): SessionSlot {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    hour12: false,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date());
+
+  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
+  if (weekday === "Sat" || weekday === "Sun") return "OFF";
+
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  const mins = hour * 60 + minute;
+
+  // KRX 정규장: 09:00~15:30, NXT 연장장: 15:30~20:00
+  if (mins >= 7 * 60 + 30 && mins < 9 * 60) return "PRE";
+  if (mins >= 9 * 60 && mins < 15 * 60 + 30) return "REGULAR";
+  if (mins >= 15 * 60 + 30 && mins < 20 * 60) return "NXT";
+  if (mins >= 20 * 60 && mins < 20 * 60 + 30) return "AFTER";
+  return "OFF";
 }
 
 type TokenState = { token: string; expiresAt: number };
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parsePositive(out: Record<string, string | undefined>, ...keys: string[]): number {
+  for (const k of keys) {
+    const n = parseKisNumber(out[k]);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return NaN;
 }
 
 export type KisPollingOptions = {
@@ -52,6 +74,7 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
   let connected = false;
   let statusMessage = "KIS 초기화";
   let tickInFlight = false;
+  const nxEligibleByCode = new Map<string, boolean>();
 
   async function ensureToken(): Promise<string> {
     const now = Date.now();
@@ -65,8 +88,23 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
     return t.access_token;
   }
 
-  function mapOutput(code: string, name: string, out: Record<string, string | undefined>): QuoteSnapshot {
-    const price = parseKisNumber(out.stck_prpr ?? out.STCK_PRPR);
+  function mapOutput(
+    code: string,
+    name: string,
+    out: Record<string, string | undefined>,
+    marketSession: SessionState,
+  ): QuoteSnapshot {
+    const price = parsePositive(
+      out,
+      "stck_prpr",
+      "STCK_PRPR",
+      "prdy_clpr",
+      "PRDY_CLPR",
+      "stck_sdpr",
+      "STCK_SDPR",
+      "stck_clpr",
+      "STCK_CLPR",
+    );
     if (Number.isNaN(price)) {
       throw new Error("stck_prpr 없음/파싱 실패");
     }
@@ -82,9 +120,9 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
       price,
       change: Number.isNaN(change) ? 0 : change,
       changeRate: Number.isNaN(changeRate) ? 0 : changeRate,
-      volume: Number.isNaN(volume) ? 0 : Math.floor(volume),
+      volume: Number.isNaN(volume) || volume < 0 ? 0 : Math.floor(volume),
       timestamp: new Date().toISOString(),
-      marketSession: sessionNowKst(),
+      marketSession,
       foreignNetBuyVolume: Number.isNaN(frgnNet) ? null : Math.trunc(frgnNet),
       /** API 원값 유지 — 앱마다 소수 자릿수만 다름 */
       foreignOwnershipPct: Number.isNaN(frgnPct) ? null : frgnPct,
@@ -100,20 +138,54 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
       const batch: QuoteSnapshot[] = [];
       const gap = Math.max(0, opts.quoteRequestGapMs);
       let hitRateLimit = false;
+      const slot = kstSessionSlotNow();
       for (let i = 0; i < symbols.length; i++) {
         const s = symbols[i]!;
         if (i > 0) await sleep(gap);
         try {
           const kisIscd = normalizeKrxStockCode(s.code);
-          const out = await fetchKisInquirePrice(
-            opts.baseUrl,
-            token,
-            opts.appKey,
-            opts.appSecret,
-            kisIscd,
-            opts.trIdPrice,
-          );
-          batch.push(mapOutput(s.code, s.name, out));
+          const request = (marketDiv: "J" | "NX") =>
+            fetchKisInquirePrice(
+              opts.baseUrl,
+              token,
+              opts.appKey,
+              opts.appSecret,
+              kisIscd,
+              opts.trIdPrice,
+              marketDiv,
+            );
+
+          let out: Record<string, string | undefined> | null = null;
+          let usedNx = false;
+
+          if ((slot === "NXT" || slot === "AFTER") && nxEligibleByCode.get(s.code) !== false) {
+            try {
+              const nxOut = await request("NX");
+              const nxPrice = parsePositive(nxOut, "stck_prpr", "STCK_PRPR");
+              if (Number.isFinite(nxPrice) && nxPrice > 0) {
+                out = nxOut;
+                usedNx = true;
+                nxEligibleByCode.set(s.code, true);
+              } else {
+                // 0원/빈값 응답은 실거래 시세로 보지 않고 KRX(J)로 폴백
+                nxEligibleByCode.set(s.code, false);
+              }
+            } catch {
+              nxEligibleByCode.set(s.code, false);
+            }
+          }
+
+          if (!out) {
+            out = await request("J");
+          }
+
+          let marketSession: SessionState = "CLOSED";
+          if (slot === "PRE") marketSession = "PRE";
+          else if (slot === "REGULAR") marketSession = "OPEN";
+          else if (slot === "NXT") marketSession = usedNx ? "OPEN" : "CLOSED";
+          else if (slot === "AFTER") marketSession = usedNx ? "AFTER" : "CLOSED";
+
+          batch.push(mapOutput(s.code, s.name, out, marketSession));
         } catch (e) {
           const msg = String(e);
           const rateLimited =

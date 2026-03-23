@@ -16,6 +16,7 @@ import { registerThemeRoutes } from "./routes/themes.js";
 import { registerNewsRuleRoutes } from "./routes/news-rules.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerNewsRoutes } from "./routes/news.js";
+import { createQuoteHistoryRecorder } from "./modules/history/quote-history.js";
 
 export async function createApiApplication(env: Env) {
   const adminPre = createAdminPreHandler(env);
@@ -26,6 +27,8 @@ export async function createApiApplication(env: Env) {
 
   let broadcastThrottleMs = 250;
   let snapshotThrottleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const historyRecorder = createQuoteHistoryRecorder(prisma, { throttleMs: 30_000 });
 
   function broadcastJson(payload: unknown) {
     const raw = JSON.stringify(payload);
@@ -49,6 +52,7 @@ export async function createApiApplication(env: Env) {
   const handleMarketQuotes = (quotes: QuoteSnapshot[]) => {
     quoteCache.setMany(quotes);
     scheduleSnapshotBroadcast();
+    historyRecorder.record(quotes);
   };
   market.onTick(handleMarketQuotes);
 
@@ -111,6 +115,7 @@ export async function createApiApplication(env: Env) {
     prisma,
     adminPre,
     reloadMarket: reloadMarketFromDb,
+    env,
   });
   await registerThemeRoutes(app, { prisma, adminPre });
   await registerNewsRuleRoutes(app, { prisma, adminPre, newsCache });

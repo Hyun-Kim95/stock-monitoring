@@ -28,6 +28,18 @@ model Stock {
   @@map("stocks")
 }
 
+/** 시세 폴링 시 스냅샷 저장 — 차트(분/일/월/년) 집계 (종목코드 문자열, FK 없음) */
+model StockQuoteHistory {
+  id          String   @id @default(uuid())
+  stockCode   String   @map("stock_code")
+  recordedAt  DateTime @map("recorded_at") @db.Timestamptz(3)
+  price       Int
+  volume      BigInt?  @map("volume")
+
+  @@index([stockCode, recordedAt(sort: Desc)])
+  @@map("stock_quote_history")
+}
+
 model Theme {
   id          String   @id @default(uuid())
   name        String   @unique @map("theme_name")

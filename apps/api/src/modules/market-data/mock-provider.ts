@@ -1,15 +1,27 @@
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
 import type { MarketDataProvider } from "./types.js";
 
-/** 국내 장 구간(한국시간 09:00~15:30, 주말 제외) — KIS 프로바이더와 동일 기준 */
-function sessionNowKst(): "OPEN" | "CLOSED" {
-  const kst = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-  const day = kst.getDay();
-  if (day === 0 || day === 6) return "CLOSED";
-  const mins = kst.getHours() * 60 + kst.getMinutes();
-  const open = 9 * 60;
-  const close = 15 * 60 + 30;
-  return mins >= open && mins <= close ? "OPEN" : "CLOSED";
+/** 국내장 세션(KST): PRE / OPEN / AFTER / CLOSED */
+function sessionNowKst(): "OPEN" | "CLOSED" | "PRE" | "AFTER" {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    hour12: false,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(new Date());
+
+  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
+  if (weekday === "Sat" || weekday === "Sun") return "CLOSED";
+
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  const mins = hour * 60 + minute;
+
+  if (mins >= 7 * 60 + 30 && mins < 8 * 60) return "PRE";
+  if (mins >= 8 * 60 && mins < 20 * 60) return "OPEN";
+  if (mins >= 20 * 60 && mins < 20 * 60 + 30) return "AFTER";
+  return "CLOSED";
 }
 
 export function createMockMarketProvider(): MarketDataProvider {

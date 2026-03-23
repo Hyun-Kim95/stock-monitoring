@@ -41,6 +41,8 @@ Next.js + Fastify + PostgreSQL + Prisma 모노레포. 시세는 기본 **목(moc
    - 대시보드: http://localhost:3000  
    - 관리자: http://localhost:3000/admin/stocks  
 
+   대시보드에서 종목을 선택하면 **캔들 차트**(분·일·월·년 봉 + **짧음(최근만)** / 보통 / 깊음 / 최대)가 보입니다. **짧음**은 조회 시작 시각을 최근으로 좁혀 봉 수가 줄어듭니다. DB(`stock_quote_history`)에 쌓인 기간이 짧으면 깊이를 바꿔도 같은 봉만 나올 수 있어, 화면의 **요청 구간·수집 범위** 안내를 확인하세요. REST: `GET /stocks/:id/chart?granularity=...&range=compact|normal|deep|max` → 응답에 `meta` 포함.
+
 `ADMIN_API_TOKEN`을 설정한 경우, 루트 `.env`의 `NEXT_PUBLIC_ADMIN_TOKEN`을 같은 값으로 맞춘 뒤 웹을 다시 띄웁니다. 둘 다 비우면 로컬에서 관리자 API 인증이 생략됩니다.
 
 ## 스크립트 (루트)

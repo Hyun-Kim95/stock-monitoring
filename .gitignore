@@ -26,6 +26,12 @@ coverage
 .DS_Store
 Thumbs.db
 .idea
+.vscode
+.cursor
 
 # Cursor/VS Code 로컬 히스토리(과거 .env 등이 들어갈 수 있음)
 .history
+
+# local auto-start scripts (개인 PC 전용)
+run-dev-startup.vbs
+setup-startup.bat
