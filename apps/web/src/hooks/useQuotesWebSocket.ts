@@ -9,6 +9,7 @@ export function useQuotesWebSocket() {
   const [quotes, setQuotes] = useState<Map<string, QuoteSnapshot>>(new Map());
   const [connected, setConnected] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | undefined>();
+  const [statusLoading, setStatusLoading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const backoffRef = useRef(1000);
 
@@ -71,5 +72,5 @@ export function useQuotesWebSocket() {
     };
   }, [applyMessage]);
 
-  return { quotes, connected, statusMsg };
+  return { quotes, connected, statusMsg, statusLoading };
 }

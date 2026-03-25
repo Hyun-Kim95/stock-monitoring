@@ -38,4 +38,14 @@ describe("WsServerMessageSchema", () => {
     };
     expect(WsServerMessageSchema.parse(msg)).toEqual(msg);
   });
+
+  it("status 메시지에 loading 옵션", () => {
+    const msg = {
+      type: "status" as const,
+      marketConnected: true,
+      message: "시세·히스토리 준비 중…",
+      loading: true,
+    };
+    expect(WsServerMessageSchema.parse(msg)).toEqual(msg);
+  });
 });

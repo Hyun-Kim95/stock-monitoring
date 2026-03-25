@@ -1,4 +1,6 @@
 @echo off
+REM 바탕화면·시작 프로그램 바로가기를 이 파일과 맞추려면:
+REM   scripts\sync-run-dev-shortcuts.bat 실행
 setlocal
 chcp 65001 >nul
 

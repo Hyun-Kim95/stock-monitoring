@@ -32,6 +32,8 @@ export const WsServerMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("status"),
     marketConnected: z.boolean(),
     message: z.string().optional(),
+    /** 시세 재구성·당일 히스토리 백필 등 서버 준비 중 */
+    loading: z.boolean().optional(),
   }),
 ]);
 

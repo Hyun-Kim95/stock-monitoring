@@ -25,7 +25,14 @@ export function createMarketDataProvider(
       quoteRequestGapMs: Math.max(50, Math.min(5000, gap)),
     });
   }
-  return createMockMarketProvider();
+  if (wantKis && (!key || !secret)) {
+    return createMockMarketProvider({
+      statusHint: "mock (DB=kis인데 .env에 KIS_APP_KEY/SECRET 없음)",
+    });
+  }
+  return createMockMarketProvider({
+    statusHint: "mock (시스템 설정 market_data.provider=mock)",
+  });
 }
 
 export function marketStatusMessage(market: MarketDataProvider): string {

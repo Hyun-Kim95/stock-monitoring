@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, apiGet } from "@/lib/api-client";
+import { formatQuotePrice } from "@/lib/format-quote";
 import { useQuotesWebSocket } from "@/hooks/useQuotesWebSocket";
 import { PriceChartPanel } from "@/components/PriceChartPanel";
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
@@ -39,7 +40,7 @@ function formatForeignPct(v: number | null | undefined): string {
 }
 
 export function DashboardPage() {
-  const { quotes, connected, statusMsg } = useQuotesWebSocket();
+  const { quotes, connected, statusMsg, statusLoading } = useQuotesWebSocket();
   const [stocks, setStocks] = useState<StockApi[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 비어 있으면 테마 필터 없음. 값이 있으면 해당 테마 중 하나라도 있는 종목만 표시(OR). */
@@ -50,14 +51,18 @@ export function DashboardPage() {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [newsErr, setNewsErr] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [stocksLoading, setStocksLoading] = useState(true);
 
   const refreshStocks = useCallback(async () => {
+    setStocksLoading(true);
     try {
       setLoadErr(null);
       const data = await apiGet<{ stocks: StockApi[] }>("/stocks");
       setStocks(data.stocks);
     } catch {
       setLoadErr("종목 목록을 불러오지 못했습니다. API 서버를 확인하세요.");
+    } finally {
+      setStocksLoading(false);
     }
   }, []);
 
@@ -251,6 +256,16 @@ export function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
+                {stocksLoading && stocks.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: 24, textAlign: "center", color: "var(--muted-foreground)" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                        <span className="loading-dot" aria-hidden />
+                        종목 목록을 불러오는 중…
+                      </span>
+                    </td>
+                  </tr>
+                ) : null}
                 {rows.map((s) => {
                   const q = quotes.get(s.code);
                   const sel = s.id === selectedId;
@@ -269,7 +284,7 @@ export function DashboardPage() {
                         <div style={{ fontWeight: 600 }}>{s.name}</div>
                         <div style={{ color: "var(--muted-foreground)", fontSize: 11 }}>{s.code}</div>
                       </td>
-                      <td className="num">{q ? q.price.toLocaleString("ko-KR") : "—"}</td>
+                      <td className="num">{q ? formatQuotePrice(q) : "—"}</td>
                       <td className={`num ${crCls}`}>
                         {q ? `${q.changeRate >= 0 ? "+" : ""}${q.changeRate.toFixed(2)}%` : "—"}
                       </td>
@@ -293,7 +308,12 @@ export function DashboardPage() {
                 background: "var(--background)",
               }}
             >
-              <PriceChartPanel stockId={selected.id} stockName={selected.name} />
+              <PriceChartPanel
+                stockId={selected.id}
+                stockName={selected.name}
+                stockCode={selected.code}
+                liveQuote={quotes.get(selected.code)}
+              />
             </div>
           ) : (
             <div

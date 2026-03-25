@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import Fastify from "fastify";
+import { logError } from "./lib/logger.js";
+import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import { prisma } from "@stock-monitoring/db";
@@ -17,18 +18,28 @@ import { registerNewsRuleRoutes } from "./routes/news-rules.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerNewsRoutes } from "./routes/news.js";
 import { createQuoteHistoryRecorder } from "./modules/history/quote-history.js";
+import { runStartupQuoteHistoryPrep } from "./modules/history/startup-quote-history.js";
 
-export async function createApiApplication(env: Env) {
+const SETTING_LAST_STOPPED_AT = "runtime.api.last_stopped_at";
+
+export async function createApiApplication(env: Env): Promise<{
+  app: FastifyInstance;
+  /** listen() 직후 호출: 히스토리 정리·KIS 당일분봉 백필 후 시세 폴링 시작 (시간이 걸려도 HTTP는 이미 열림) */
+  runAfterListen: () => Promise<void>;
+}> {
   const adminPre = createAdminPreHandler(env);
   let market = createMarketDataProvider(env, { providerSetting: "mock", pollIntervalMs: 1000 });
   const quoteCache = new QuoteCache();
   const newsCache = new NewsMemoryCache();
   const sockets = new Set<{ send: (data: string) => void; close: () => void }>();
 
+  /** `runAfterListen` 완료 전까지 신규 WS 클라이언트에도 로딩 상태 전달 */
+  let marketStartupLoading = true;
+
   let broadcastThrottleMs = 250;
   let snapshotThrottleTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const historyRecorder = createQuoteHistoryRecorder(prisma, { throttleMs: 30_000 });
+  const historyRecorder = createQuoteHistoryRecorder(prisma, { throttleMs: 1_000 });
 
   function broadcastJson(payload: unknown) {
     const raw = JSON.stringify(payload);
@@ -56,7 +67,7 @@ export async function createApiApplication(env: Env) {
   };
   market.onTick(handleMarketQuotes);
 
-  async function reloadMarketFromDb() {
+  async function reloadMarketFromDb(opts?: { loading?: boolean }) {
     const stocks = await prisma.stock.findMany({
       where: { isActive: true },
       orderBy: { code: "asc" },
@@ -82,6 +93,7 @@ export async function createApiApplication(env: Env) {
       type: "status",
       marketConnected: market.isConnected(),
       message: marketStatusMessage(market),
+      loading: opts?.loading ?? false,
     });
   }
 
@@ -100,6 +112,17 @@ export async function createApiApplication(env: Env) {
   const app = Fastify({
     logger: env.NODE_ENV === "development",
     genReqId: () => randomUUID(),
+  });
+  app.addHook("onClose", async () => {
+    try {
+      await prisma.systemSetting.upsert({
+        where: { settingKey: SETTING_LAST_STOPPED_AT },
+        update: { settingValue: new Date().toISOString() },
+        create: { settingKey: SETTING_LAST_STOPPED_AT, settingValue: new Date().toISOString() },
+      });
+    } catch (e) {
+      logError("persist last stopped at failed", { err: String(e) });
+    }
   });
 
   await app.register(cors, {
@@ -140,6 +163,7 @@ export async function createApiApplication(env: Env) {
         type: "status",
         marketConnected: market.isConnected(),
         message: marketStatusMessage(market),
+        loading: marketStartupLoading,
       }),
     );
     socket.on("close", () => {
@@ -148,7 +172,32 @@ export async function createApiApplication(env: Env) {
   });
 
   await refreshBroadcastThrottle();
-  await reloadMarketFromDb();
 
-  return app;
+  async function runAfterListen() {
+    /** DB의 market_data.provider(kis 등)를 즉시 반영. 당일 분봉 백필은 느리므로 그 뒤에 두면 그동안 mock으로 보이는 문제가 난다. */
+    try {
+      broadcastJson({
+        type: "status",
+        marketConnected: market.isConnected(),
+        message: "시세·히스토리 준비 중…",
+        loading: true,
+      });
+      await reloadMarketFromDb({ loading: true });
+      try {
+        await runStartupQuoteHistoryPrep(prisma, env);
+      } catch (e) {
+        logError("runStartupQuoteHistoryPrep failed", { err: String(e) });
+      }
+    } finally {
+      marketStartupLoading = false;
+      broadcastJson({
+        type: "status",
+        marketConnected: market.isConnected(),
+        message: marketStatusMessage(market),
+        loading: false,
+      });
+    }
+  }
+
+  return { app, runAfterListen };
 }

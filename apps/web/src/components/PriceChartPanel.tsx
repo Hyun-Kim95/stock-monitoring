@@ -10,7 +10,9 @@ import type {
   UTCTimestamp,
 } from "lightweight-charts";
 import { chartRangeButtonLabel } from "@sm-shared/chart-range";
+import type { QuoteSnapshot } from "@stock-monitoring/shared";
 import { ApiError, apiGet } from "@/lib/api-client";
+import { formatQuotePrice } from "@/lib/format-quote";
 
 type Granularity = "minute" | "day" | "month" | "year";
 type RangeKey = "compact" | "normal" | "deep" | "max";
@@ -26,6 +28,7 @@ type ChartMeta = {
 };
 
 type ChartApi = {
+  stockId: string;
   granularity: Granularity;
   range: RangeKey;
   candles: { t: string; open: number; high: number; low: number; close: number }[];
@@ -49,6 +52,138 @@ function toLwCandles(rows: ChartApi["candles"]): CandlestickData<UTCTimestamp>[]
     low: r.low,
     close: r.close,
   }));
+}
+
+/** 현재 시각의 KST 분 시작(초 단위 UTC epoch) — 서버 분봉 집계와 동일한 버킷 */
+function kstMinuteStartUtcSec(now = new Date()): UTCTimestamp {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const pick = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? "0";
+  const y = pick("year");
+  const mo = pick("month");
+  const d = pick("day");
+  const h = pick("hour");
+  const m = pick("minute");
+  const iso = `${y}-${mo}-${d}T${h}:${m}:00+09:00`;
+  return Math.floor(new Date(iso).getTime() / 1000) as UTCTimestamp;
+}
+
+/** 봉 시각(초)을 KST 분 시작 epoch으로 맞춤 — DB period와 클라이언트 now의 초 단위 차이로 === 비교가 깨지는 것 방지 */
+function minuteBucketUtcSec(barTimeSec: number): UTCTimestamp {
+  return kstMinuteStartUtcSec(new Date(barTimeSec * 1000));
+}
+
+/** WebSocket 시세로 막대기 형성 중인 분봉을 실시간 반영 (DB는 1초 단위 저장) */
+function mergeLiveMinuteBar(
+  candles: CandlestickData<UTCTimestamp>[],
+  quote: QuoteSnapshot | undefined,
+  stockCode: string,
+): CandlestickData<UTCTimestamp>[] {
+  if (!quote || quote.symbol !== stockCode) return candles;
+  const p = Math.round(quote.price);
+  if (!Number.isFinite(p) || p <= 0) return candles;
+
+  const nowBucket = kstMinuteStartUtcSec();
+  if (candles.length === 0) {
+    if (quote.marketSession !== "OPEN" && quote.marketSession !== "PRE") return candles;
+    return [{ time: nowBucket, open: p, high: p, low: p, close: p }];
+  }
+
+  const out = candles.map((c) => ({ ...c }));
+  const last = out[out.length - 1];
+  const lastTs = Number(last.time);
+  const lastBucket = minuteBucketUtcSec(lastTs);
+
+  if (lastBucket === nowBucket) {
+    out[out.length - 1] = {
+      time: lastBucket,
+      open: last.open,
+      high: Math.max(last.high, p),
+      low: Math.min(last.low, p),
+      close: p,
+    };
+    return out;
+  }
+
+  if (lastBucket < nowBucket) {
+    if (quote.marketSession !== "OPEN" && quote.marketSession !== "PRE") return candles;
+    out.push({
+      time: nowBucket,
+      open: last.close,
+      high: Math.max(last.close, p),
+      low: Math.min(last.close, p),
+      close: p,
+    });
+    return out;
+  }
+
+  /* 서버 봉 시각이 클라이언트 ‘현재 분’보다 앞서 보이는 경우(시계·파싱 차이): 마지막 봉만 WS로 맞춤 */
+  out[out.length - 1] = {
+    time: last.time,
+    open: last.open,
+    high: Math.max(last.high, p),
+    low: Math.min(last.low, p),
+    close: p,
+  };
+  return out;
+}
+
+function kstYmdParts(d: Date): { y: string; m: string; day: string } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const pick = (tp: Intl.DateTimeFormatPartTypes) => parts.find((x) => x.type === tp)?.value ?? "";
+  return { y: pick("year"), m: pick("month"), day: pick("day") };
+}
+
+/** 마지막 봉이 KST 기준 ‘현재 일·월·년’ 구간이면 WS 현재가로 종·고·저 보정 (일봉 기본 화면과 테이블 불일치 방지) */
+function mergeLiveIntoAggregatedLastBar(
+  candles: CandlestickData<UTCTimestamp>[],
+  quote: QuoteSnapshot | undefined,
+  stockCode: string,
+  granularity: Granularity,
+): CandlestickData<UTCTimestamp>[] {
+  if (granularity === "minute" || !quote || quote.symbol !== stockCode) return candles;
+  const p = Math.round(quote.price);
+  if (!Number.isFinite(p) || p <= 0 || candles.length === 0) return candles;
+
+  const last = candles[candles.length - 1];
+  const lastDate = new Date((last.time as number) * 1000);
+  const now = new Date();
+  const cur = kstYmdParts(now);
+  const k = kstYmdParts(lastDate);
+
+  let inCurrentPeriod = false;
+  if (granularity === "day") {
+    inCurrentPeriod = k.y === cur.y && k.m === cur.m && k.day === cur.day;
+  } else if (granularity === "month") {
+    inCurrentPeriod = k.y === cur.y && k.m === cur.m;
+  } else if (granularity === "year") {
+    inCurrentPeriod = k.y === cur.y;
+  }
+
+  if (!inCurrentPeriod) return candles;
+
+  const out = candles.map((c) => ({ ...c }));
+  const prev = out[out.length - 1];
+  out[out.length - 1] = {
+    ...prev,
+    close: p,
+    high: Math.max(prev.high, p),
+    low: Math.min(prev.low, p),
+  };
+  return out;
 }
 
 const KST: Intl.DateTimeFormatOptions = { timeZone: "Asia/Seoul" };
@@ -142,9 +277,20 @@ function formatTickMarkLabel(
   return null;
 }
 
-export function PriceChartPanel({ stockId, stockName }: { stockId: string; stockName: string }) {
+export function PriceChartPanel({
+  stockId,
+  stockName,
+  stockCode,
+  liveQuote,
+}: {
+  stockId: string;
+  stockName: string;
+  stockCode?: string;
+  liveQuote?: QuoteSnapshot;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const [granularity, setGranularity] = useState<Granularity>("day");
   const [range, setRange] = useState<RangeKey>("normal");
   const [candles, setCandles] = useState<ChartApi["candles"]>([]);
@@ -160,25 +306,41 @@ export function PriceChartPanel({ stockId, stockName }: { stockId: string; stock
     close: number;
   } | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
+  /** 늦게 도착한 차트 응답이 봉 단위·범위·종목을 덮어쓰지 않도록 */
+  const fetchSeqRef = useRef(0);
+
+  const load = useCallback(async (opts?: { soft?: boolean }) => {
+    const soft = opts?.soft === true;
+    const seq = ++fetchSeqRef.current;
+    if (!soft) {
+      setLoading(true);
+      setErr(null);
+      setCandles([]);
+      setMeta(null);
+      setHoverBar(null);
+    }
     try {
       const res = await apiGet<ChartApi>(
         `/stocks/${stockId}/chart?granularity=${granularity}&range=${range}`,
       );
+      if (seq !== fetchSeqRef.current) return;
+      if (res.stockId !== stockId || res.granularity !== granularity || res.range !== range) return;
       setCandles(res.candles);
       setMeta(res.meta);
+      if (!soft) setErr(null);
     } catch (e) {
-      setCandles([]);
-      setMeta(null);
-      if (e instanceof ApiError) {
-        setErr(`차트 ${e.status}`);
-      } else {
-        setErr("차트를 불러오지 못했습니다.");
+      if (!soft) {
+        if (seq !== fetchSeqRef.current) return;
+        setCandles([]);
+        setMeta(null);
+        if (e instanceof ApiError) {
+          setErr(`차트 ${e.status}`);
+        } else {
+          setErr("차트를 불러오지 못했습니다.");
+        }
       }
     } finally {
-      setLoading(false);
+      if (!soft && seq === fetchSeqRef.current) setLoading(false);
     }
   }, [stockId, granularity, range]);
 
@@ -186,15 +348,36 @@ export function PriceChartPanel({ stockId, stockName }: { stockId: string; stock
     void load();
   }, [load]);
 
-  const chartData = useMemo(() => toLwCandles(candles), [candles]);
+  useEffect(() => {
+    if (granularity !== "minute") return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void load({ soft: true });
+    }, 1_000);
+    return () => window.clearInterval(id);
+  }, [granularity, load]);
 
+  const lwBase = useMemo(() => toLwCandles(candles), [candles]);
+  const lwData = useMemo(() => {
+    if (!stockCode) return lwBase;
+    let lw = lwBase;
+    if (granularity === "minute") {
+      lw = mergeLiveMinuteBar(lw, liveQuote, stockCode);
+    } else {
+      lw = mergeLiveIntoAggregatedLastBar(lw, liveQuote, stockCode, granularity);
+    }
+    return lw;
+  }, [lwBase, granularity, stockCode, liveQuote]);
+
+  /** 종목·봉·범위·서버 캔들 개수가 바뀔 때만 차트 인스턴스를 새로 만듦 (실시간 시세는 아래 effect에서 setData) */
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    if (chartData.length === 0) {
+    if (lwData.length === 0) {
       chartRef.current?.remove();
       chartRef.current = null;
+      seriesRef.current = null;
       setHoverBar(null);
       return;
     }
@@ -205,7 +388,12 @@ export function PriceChartPanel({ stockId, stockName }: { stockId: string; stock
 
     void import("lightweight-charts").then((mod) => {
       if (cancelled || !containerRef.current) return;
+
       chartRef.current?.remove();
+      unsubCrosshair?.();
+      ro?.disconnect();
+      unsubCrosshair = null;
+      ro = null;
 
       const w = Math.max(200, containerRef.current.clientWidth);
       const h = 280;
@@ -251,9 +439,10 @@ export function PriceChartPanel({ stockId, stockName }: { stockId: string; stock
         wickDownColor: "#2196f3",
         priceFormat: { type: "price", precision: 0, minMove: 1 },
       }) as ISeriesApi<"Candlestick">;
-      series.setData(chartData);
+      series.setData(lwData);
       chart.timeScale().fitContent();
       chartRef.current = chart;
+      seriesRef.current = series;
 
       const onCrosshairMove = (param: MouseEventParams) => {
         if (param.point === undefined || param.time === undefined) {
@@ -290,14 +479,30 @@ export function PriceChartPanel({ stockId, stockName }: { stockId: string; stock
       ro?.disconnect();
       chartRef.current?.remove();
       chartRef.current = null;
+      seriesRef.current = null;
       setHoverBar(null);
     };
-  }, [stockId, granularity, range, chartData]);
+  }, [stockId, granularity, range, lwBase.length]);
+
+  useEffect(() => {
+    if (lwData.length === 0 || !seriesRef.current) return;
+    seriesRef.current.setData(lwData);
+  }, [lwData]);
 
   return (
     <div style={{ minHeight: 200 }}>
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>캔들 차트 · {stockName}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+          <span style={{ fontWeight: 600, fontSize: 13 }}>캔들 차트 · {stockName}</span>
+          {liveQuote ? (
+            <span style={{ fontSize: 13, fontWeight: 700 }}>
+              현재가 {formatQuotePrice(liveQuote)}
+              <span style={{ fontWeight: 500, color: "var(--muted-foreground)", marginLeft: 8, fontSize: 11 }}>
+                (실시간 · 표와 동일)
+              </span>
+            </span>
+          ) : null}
+        </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>봉 단위</span>
           {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
@@ -329,8 +534,10 @@ export function PriceChartPanel({ stockId, stockName }: { stockId: string; stock
         </div>
       </div>
       <p style={{ margin: "0 0 8px", fontSize: 11, color: "var(--muted-foreground)", lineHeight: 1.45 }}>
-        서버가 시세를 받을 때마다 약 30초 간격으로 저장합니다. 아래는 <strong>최근부터 최대 N개</strong> 봉을
-        가져오며, DB에 쌓인 기간이 짧으면 N보다 적게 보일 수 있습니다.
+        시세는 서버에서 최소 약 1초 간격으로 저장됩니다. <strong>일·월·년</strong> 마지막 봉은 오늘/이번 달/올해에
+        해당할 때 WebSocket 현재가로 종가를 맞춥니다. <strong>분</strong> 봉은 같은 분 구간에서 실시간 반영됩니다.
+        크로스헤어의 종가는 <strong>해당 봉(히스토리)</strong>의 값입니다. 아래는 <strong>최근부터 최대 N개</strong> 봉이며,
+        DB에 쌓인 기간이 짧으면 N보다 적게 보일 수 있습니다.
       </p>
       {meta && !err ? (
         <div
@@ -368,15 +575,15 @@ export function PriceChartPanel({ stockId, stockName }: { stockId: string; stock
         </div>
       ) : null}
       {err ? <div style={{ color: "var(--down)", fontSize: 12 }}>{err}</div> : null}
-      {loading && chartData.length === 0 ? (
+      {loading && lwData.length === 0 ? (
         <div style={{ color: "var(--muted-foreground)", fontSize: 12 }}>불러오는 중…</div>
       ) : null}
-      {!loading && !err && chartData.length === 0 ? (
+      {!loading && !err && lwData.length === 0 ? (
         <div style={{ color: "var(--muted-foreground)", fontSize: 12 }}>
           저장된 시세가 없습니다. API가 켜진 채로 잠시 두면 캔들이 채워집니다.
         </div>
       ) : null}
-      {chartData.length > 0 ? (
+      {lwData.length > 0 ? (
         <>
           <div ref={containerRef} style={{ width: "100%", height: 280, position: "relative" }} />
           {hoverBar ? (

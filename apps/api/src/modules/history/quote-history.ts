@@ -76,12 +76,24 @@ export async function fetchChart(
 ): Promise<ChartBundle> {
   const { from, cap } = windowParams(granularity, range);
 
+  const boundsPromise =
+    granularity === "minute"
+      ? prisma.$queryRaw<{ min_t: Date | null; max_t: Date | null }[]>`
+          SELECT MIN("recorded_at") AS min_t, MAX("recorded_at") AS max_t
+          FROM "stock_quote_history"
+          WHERE "stock_code" = ${stockCode}
+            AND "recorded_at" >= ${from}
+            AND date_trunc('minute', ("recorded_at" AT TIME ZONE 'Asia/Seoul'))
+              <= date_trunc('minute', (NOW() AT TIME ZONE 'Asia/Seoul'))
+        `
+      : prisma.$queryRaw<{ min_t: Date | null; max_t: Date | null }[]>`
+          SELECT MIN("recorded_at") AS min_t, MAX("recorded_at") AS max_t
+          FROM "stock_quote_history"
+          WHERE "stock_code" = ${stockCode}
+        `;
+
   const [bounds, rows] = await Promise.all([
-    prisma.$queryRaw<{ min_t: Date | null; max_t: Date | null }[]>`
-      SELECT MIN("recorded_at") AS min_t, MAX("recorded_at") AS max_t
-      FROM "stock_quote_history"
-      WHERE "stock_code" = ${stockCode}
-    `,
+    boundsPromise,
     (async (): Promise<OhlcRow[]> => {
       /* 최신 N봉: 안쪽은 시간순 집계 후 ORDER BY period DESC LIMIT → 바깥에서 다시 시간순 */
       switch (granularity) {
@@ -97,17 +109,23 @@ export async function fetchChart(
                 FROM "stock_quote_history"
                 WHERE "stock_code" = ${stockCode} AND "recorded_at" >= ${from}
                   AND "price" > 0
+                  AND date_trunc('minute', ("recorded_at" AT TIME ZONE 'Asia/Seoul'))
+                    <= date_trunc('minute', (NOW() AT TIME ZONE 'Asia/Seoul'))
                   AND EXTRACT(ISODOW FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) BETWEEN 1 AND 5
-                  AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time >= TIME '09:00:00')
-                  AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time <= TIME '15:30:00')
+                  AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time >= TIME '08:00:00')
+                  AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time <= TIME '20:30:00')
                   AND NOT (
-                    EXTRACT(SECOND FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) = 0
-                    AND (
-                      (EXTRACT(HOUR FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) = 9 AND EXTRACT(MINUTE FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) = 0)
-                      OR (EXTRACT(HOUR FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) = 10 AND EXTRACT(MINUTE FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) = 0)
-                      OR (EXTRACT(HOUR FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) = 12 AND EXTRACT(MINUTE FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) = 0)
-                      OR (EXTRACT(HOUR FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) = 15 AND EXTRACT(MINUTE FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) = 30)
-                    )
+                    "volume" IS NULL
+                    AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time IN (
+                      TIME '08:00:00',
+                      TIME '08:01:00',
+                      TIME '08:02:00',
+                      TIME '08:03:00',
+                      TIME '09:00:00',
+                      TIME '10:00:00',
+                      TIME '12:00:00',
+                      TIME '15:30:00'
+                    ))
                   )
                 GROUP BY 1
               ) inner_agg
@@ -223,12 +241,12 @@ export function createQuoteHistoryRecorder(prisma: PrismaClient, opts: { throttl
   return {
     record(quotes: QuoteSnapshot[]): void {
       const now = Date.now();
-      const throttle = Math.max(5_000, opts.throttleMs);
+      const throttle = Math.max(1_000, Math.min(60_000, opts.throttleMs));
       const rows: { id: string; stockCode: string; recordedAt: Date; price: number; volume: bigint | null }[] =
         [];
       for (const q of quotes) {
-        // 거래 가능 시간(OPEN)만 히스토리에 저장. 장 종료 후 동일 가격 연속 적재 방지.
-        if (q.marketSession !== "OPEN") continue;
+        // 정규장(OPEN) + 프리마켓(PRE, KST 7:30~9:00)만 저장. KIS는 PRE 동안에도 호가가 나옴.
+        if (q.marketSession !== "OPEN" && q.marketSession !== "PRE") continue;
         if (!Number.isFinite(q.price) || q.price <= 0) continue;
         const code = q.symbol;
         const last = lastByCode.get(code) ?? 0;

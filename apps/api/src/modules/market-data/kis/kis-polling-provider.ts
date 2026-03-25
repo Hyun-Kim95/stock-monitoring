@@ -27,9 +27,9 @@ function kstSessionSlotNow(): SessionSlot {
   const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
   const mins = hour * 60 + minute;
 
-  // KRX 정규장: 09:00~15:30, NXT 연장장: 15:30~20:00
-  if (mins >= 7 * 60 + 30 && mins < 9 * 60) return "PRE";
-  if (mins >= 9 * 60 && mins < 15 * 60 + 30) return "REGULAR";
+  // 7:30~8:00 PRE, 8:00~15:30는 단일가·정규 포함해 시세·분봉(8시~)과 맞게 REGULAR→OPEN. NXT 15:30~20:00
+  if (mins >= 7 * 60 + 30 && mins < 8 * 60) return "PRE";
+  if (mins >= 8 * 60 && mins < 15 * 60 + 30) return "REGULAR";
   if (mins >= 15 * 60 + 30 && mins < 20 * 60) return "NXT";
   if (mins >= 20 * 60 && mins < 20 * 60 + 30) return "AFTER";
   return "OFF";

@@ -271,4 +271,26 @@
   .admin-grid {
     @apply grid grid-cols-1 gap-4 md:grid-cols-2;
   }
+
+  @keyframes loading-pulse {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(0.85);
+    }
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .loading-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: loading-pulse 0.9s ease-in-out infinite;
+    vertical-align: middle;
+  }
 }

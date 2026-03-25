@@ -21,6 +21,13 @@ const EnvSchema = z.object({
   KIS_TR_ID_PRICE: z.string().optional(),
   /** inquire-price 종목 간 최소 간격(ms). 비우면 400. KIS 초당 건수 제한(EGW00201) 완화 */
   KIS_QUOTE_REQUEST_GAP_MS: z.coerce.number().int().positive().max(10_000).optional(),
+  /**
+   * 서버 기동 시 stock_quote_history 정리.
+   * none=안 함, today=오늘 KST 0시(당일) 데이터만 삭제, today_8kst=오늘 KST 08:00 미만 전부 삭제(전일·당일 새벽 제거), all=전체 TRUNCATE
+   */
+  QUOTE_HISTORY_RESET_ON_START: z.enum(["none", "today", "today_8kst", "all"]).default("none"),
+  /** KIS 사용 시 기동 직후 오늘 분봉을 종목별로 먼저 백필한 뒤 폴링 시작 */
+  KIS_STARTUP_MINUTE_BACKFILL: z.coerce.boolean().default(true),
   /** 네이버 검색(뉴스) — 없으면 목 뉴스 */
   NAVER_CLIENT_ID: z.string().optional(),
   NAVER_CLIENT_SECRET: z.string().optional(),

@@ -24,7 +24,7 @@ function sessionNowKst(): "OPEN" | "CLOSED" | "PRE" | "AFTER" {
   return "CLOSED";
 }
 
-export function createMockMarketProvider(): MarketDataProvider {
+export function createMockMarketProvider(opts?: { statusHint?: string }): MarketDataProvider {
   let timer: ReturnType<typeof setInterval> | undefined;
   const state = new Map<
     string,
@@ -43,7 +43,7 @@ export function createMockMarketProvider(): MarketDataProvider {
     const marketSession = sessionNowKst();
     const batch: QuoteSnapshot[] = [];
     for (const [code, s] of state) {
-      if (marketSession === "OPEN") {
+      if (marketSession === "OPEN" || marketSession === "PRE") {
         const delta = (Math.random() - 0.5) * (s.base * 0.002);
         s.price = Math.max(100, Math.round((s.price + delta) * 100) / 100);
         s.volume += Math.floor(Math.random() * 5000);
@@ -120,6 +120,9 @@ export function createMockMarketProvider(): MarketDataProvider {
     },
     isConnected() {
       return !!timer;
+    },
+    getStatusMessage() {
+      return opts?.statusHint ?? "mock provider";
     },
   };
 }
