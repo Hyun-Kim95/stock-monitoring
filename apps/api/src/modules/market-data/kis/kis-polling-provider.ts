@@ -36,6 +36,7 @@ function kstSessionSlotNow(): SessionSlot {
 }
 
 type TokenState = { token: string; expiresAt: number };
+let tokenRetryNotBefore = 0;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,10 +79,29 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
 
   async function ensureToken(): Promise<string> {
     const now = Date.now();
+    // 만료 여유 1분 이상 남은 토큰은 그대로 사용
     if (tokenState && tokenState.expiresAt > now + 60_000) {
       return tokenState.token;
     }
-    const t = await fetchKisAccessToken(opts.baseUrl, opts.appKey, opts.appSecret);
+    // EGW00133로 재발급만 막힌 경우: 아직 만료 전이면 기존 토큰으로 시세 조회 계속 (쿨다운 ≠ 통신 실패)
+    if (now < tokenRetryNotBefore) {
+      if (tokenState && tokenState.expiresAt > now) {
+        return tokenState.token;
+      }
+      const waitSec = Math.ceil((tokenRetryNotBefore - now) / 1000);
+      throw new Error(`KIS_TOKEN_COOLDOWN:${waitSec}`);
+    }
+    let t;
+    try {
+      t = await fetchKisAccessToken(opts.baseUrl, opts.appKey, opts.appSecret);
+      tokenRetryNotBefore = 0;
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes("EGW00133") || msg.includes("접근토큰 발급 잠시 후 다시 시도하세요")) {
+        tokenRetryNotBefore = Date.now() + 65_000;
+      }
+      throw e;
+    }
     const exp = Date.parse(t.access_token_token_expired.replace(" ", "T"));
     const expiresAt = Number.isNaN(exp) ? now + 23 * 3600_000 : exp;
     tokenState = { token: t.access_token, expiresAt };
@@ -191,7 +211,10 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
           const rateLimited =
             msg.includes("EGW00201") || msg.includes("초당 거래건수") || msg.includes("거래건수를 초과");
           if (rateLimited) hitRateLimit = true;
-          statusMessage = rateLimited
+          const tokenLimited = msg.includes("EGW00133") || msg.includes("접근토큰 발급 잠시 후 다시 시도하세요");
+          statusMessage = tokenLimited
+            ? "KIS 토큰 발급 제한(1분 1회). 잠시 후 자동 재시도합니다."
+            : rateLimited
             ? `KIS 호출 한도 초과(초당 건수). .env KIS_QUOTE_REQUEST_GAP_MS(현재 ${gap}ms)를 늘리거나 market_data.poll_interval_ms를 올리세요.`
             : `KIS ${s.code} 오류: ${msg.slice(0, 120)}`;
           const prev = lastQuotes.find((q) => q.symbol === s.code);
@@ -205,8 +228,15 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
         for (const cb of listeners) cb(batch);
       }
     } catch (e) {
-      connected = false;
-      statusMessage = `KIS 토큰/통신 실패: ${String(e).slice(0, 160)}`;
+      const msg = String(e);
+      if (msg.startsWith("Error: KIS_TOKEN_COOLDOWN:") || msg.includes("KIS_TOKEN_COOLDOWN:")) {
+        const sec = msg.split("KIS_TOKEN_COOLDOWN:")[1]?.trim().split(/[\s:]/)[0] ?? "?";
+        statusMessage = `KIS 접근토큰 재발급 대기(약 ${sec}초). 1분당 1회 제한 해제 후 자동 재시도합니다.`;
+        connected = lastQuotes.length > 0;
+      } else {
+        connected = false;
+        statusMessage = `KIS 토큰/통신 실패: ${msg.slice(0, 160)}`;
+      }
       for (const cb of listeners) cb(lastQuotes);
     } finally {
       tickInFlight = false;

@@ -6,6 +6,7 @@ import { ApiError, apiGet } from "@/lib/api-client";
 import { formatQuotePrice } from "@/lib/format-quote";
 import { useQuotesWebSocket } from "@/hooks/useQuotesWebSocket";
 import { PriceChartPanel } from "@/components/PriceChartPanel";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
 
 type ThemeBrief = { id: string; name: string };
@@ -212,6 +213,7 @@ export function DashboardPage() {
             onChange={(e) => setFilterText(e.target.value)}
             style={{ minWidth: 200 }}
           />
+          <ThemeToggle />
           <Link href="/admin/stocks">관리자</Link>
         </div>
       </header>

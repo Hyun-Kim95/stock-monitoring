@@ -10,8 +10,27 @@ export const StockCreateSchema = z.object({
     .max(20)
     .transform((c) => normalizeKrxStockCode(c)),
   name: z.string().min(1).max(200),
+  industryMajorCode: z.string().trim().min(1).max(20).optional().nullable(),
   searchAlias: z.string().max(2000).optional().nullable(),
   isActive: z.boolean().optional(),
+  /** 종목 등록 시 함께 연결할 테마명 목록 (미존재 시 자동 생성) */
+  themeNames: z
+    .array(z.string().min(1).max(200))
+    .optional()
+    .transform((arr) => {
+      const raw = arr ?? [];
+      const out: string[] = [];
+      const seen = new Set<string>();
+      for (const s of raw) {
+        const t = s.trim();
+        if (!t) continue;
+        const k = t.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(t);
+      }
+      return out.slice(0, 50);
+    }),
 });
 
 export const StockUpdateSchema = z.object({

@@ -16,6 +16,7 @@ model Stock {
   id            String   @id @default(uuid())
   code          String   @unique @map("stock_code")
   name          String   @map("stock_name")
+  industryMajorCode String? @map("industry_major_code")
   searchAlias   String?  @map("search_alias")
   isActive      Boolean  @default(true) @map("is_active")
   createdAt     DateTime @default(now()) @map("created_at")

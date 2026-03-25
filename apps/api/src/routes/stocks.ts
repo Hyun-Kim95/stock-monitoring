@@ -25,6 +25,88 @@ type Ctx = {
 export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
   const { prisma, adminPre, reloadMarket, env } = ctx;
 
+  async function fetchIndustryMajorCodeFromNaver(code: string): Promise<string | null> {
+    try {
+      const res = await fetch(`https://m.stock.naver.com/api/stock/${encodeURIComponent(code)}/integration`, {
+        headers: { Accept: "application/json", "User-Agent": "stock-monitoring/1.0" },
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as { industryCode?: unknown };
+      const raw = String(json.industryCode ?? "").trim();
+      return raw ? raw : null;
+    } catch {
+      return null;
+    }
+  }
+
+  app.get("/stocks/search", async (request, reply) => {
+    const { q = "", size = "20" } = request.query as { q?: string; size?: string };
+    const query = q.trim();
+    if (query.length < 1) return { items: [] };
+    const n = Number(size);
+    const limit = Number.isFinite(n) ? Math.max(1, Math.min(50, Math.floor(n))) : 20;
+    try {
+      const url = new URL("https://ac.stock.naver.com/ac");
+      url.searchParams.set("q", query);
+      url.searchParams.set("query", query);
+      url.searchParams.set("target", "stock");
+      url.searchParams.set("page", "1");
+      url.searchParams.set("size", String(limit));
+      const res = await fetch(url.toString(), {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "stock-monitoring/1.0",
+        },
+      });
+      if (!res.ok) {
+        return reply.status(502).send({
+          error: { code: "UPSTREAM_ERROR", message: `종목 검색 상류 실패(${res.status})` },
+        });
+      }
+      const raw = (await res.json()) as {
+        items?: Array<{ code?: string; name?: string; typeName?: string; typeCode?: string; category?: string }>;
+      };
+      const baseItems = (raw.items ?? [])
+        .filter((x) => (x.category ?? "stock") === "stock")
+        .map((x) => ({
+          code: String(x.code ?? "").trim(),
+          name: String(x.name ?? "").trim(),
+          market: String(x.typeName ?? x.typeCode ?? "").trim() || null,
+        }))
+        .filter((x) => x.code.length > 0 && x.name.length > 0);
+      const codes = [...new Set(baseItems.map((x) => x.code))];
+      const linked = codes.length
+        ? await prisma.stock.findMany({
+            where: { code: { in: codes } },
+            include: { themeMaps: { include: { theme: true } } },
+          })
+        : [];
+      const themeNamesByCode = new Map<string, string[]>();
+      for (const s of linked) {
+        const names = s.themeMaps
+          .filter((m) => m.theme.isActive)
+          .map((m) => m.theme.name)
+          .filter(Boolean);
+        themeNamesByCode.set(s.code, names);
+      }
+      const linkedIndustryByCode = new Map(linked.map((s) => [s.code, s.industryMajorCode ?? null]));
+      const industryByCode = new Map<string, string | null>();
+      await Promise.all(
+        codes.map(async (code) => {
+          industryByCode.set(code, await fetchIndustryMajorCodeFromNaver(code));
+        }),
+      );
+      const items = baseItems.map((x) => ({
+        ...x,
+        themeNames: themeNamesByCode.get(x.code) ?? [],
+        industryMajorCode: linkedIndustryByCode.get(x.code) ?? industryByCode.get(x.code) ?? null,
+      }));
+      return { items };
+    } catch {
+      return reply.status(502).send({ error: { code: "UPSTREAM_ERROR", message: "종목 검색 실패" } });
+    }
+  });
+
   app.get("/stocks", async () => {
     const rows = await prisma.stock.findMany({
       where: { isActive: true },
@@ -38,6 +120,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
         id: s.id,
         code: s.code,
         name: s.name,
+        industryMajorCode: s.industryMajorCode,
         searchAlias: s.searchAlias,
         isActive: s.isActive,
         themes: s.themeMaps
@@ -115,6 +198,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
         id: s.id,
         code: s.code,
         name: s.name,
+        industryMajorCode: s.industryMajorCode,
         searchAlias: s.searchAlias,
         isActive: s.isActive,
         themes: s.themeMaps
@@ -142,14 +226,40 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
       }
     }
     try {
-      const created = await prisma.stock.create({
-        data: {
-          code: b.code,
-          name: b.name,
-          searchAlias: b.searchAlias ?? null,
-          isActive: b.isActive ?? true,
-        },
+      const created = await prisma.$transaction(async (tx) => {
+        const stock = await tx.stock.create({
+          data: {
+            code: b.code,
+            name: b.name,
+            industryMajorCode: b.industryMajorCode ?? null,
+            searchAlias: b.searchAlias ?? null,
+            isActive: b.isActive ?? true,
+          },
+        });
+
+        const themeNames = b.themeNames ?? [];
+        if (themeNames.length > 0) {
+          const themes = [];
+          for (const rawName of themeNames) {
+            const name = rawName.trim();
+            if (!name) continue;
+            const found = await tx.theme.findFirst({
+              where: { name: { equals: name, mode: "insensitive" } },
+            });
+            if (found) {
+              themes.push(await tx.theme.update({ where: { id: found.id }, data: { isActive: true } }));
+            } else {
+              themes.push(await tx.theme.create({ data: { name, isActive: true, description: null } }));
+            }
+          }
+          await tx.stockThemeMap.createMany({
+            data: themes.map((t) => ({ stockId: stock.id, themeId: t.id })),
+            skipDuplicates: true,
+          });
+        }
+        return stock;
       });
+
       await reloadMarket();
       return reply.status(201).send({ stock: created });
     } catch {

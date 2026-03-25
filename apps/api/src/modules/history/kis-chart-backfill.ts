@@ -31,13 +31,35 @@ export function resetQuoteHistoryCaches(): void {
   minuteBackfillNotBefore.clear();
 }
 let backfillTokenCache: { baseUrl: string; token: string; expiresAt: number } | null = null;
+let backfillTokenRetryNotBefore = 0;
 
 async function ensureBackfillToken(baseUrl: string, appKey: string, appSecret: string): Promise<string> {
   const now = Date.now();
-  if (backfillTokenCache && backfillTokenCache.baseUrl === baseUrl && backfillTokenCache.expiresAt > now + 60_000) {
+  if (
+    backfillTokenCache &&
+    backfillTokenCache.baseUrl === baseUrl &&
+    backfillTokenCache.expiresAt > now + 60_000
+  ) {
     return backfillTokenCache.token;
   }
-  const t = await fetchKisAccessToken(baseUrl, appKey, appSecret);
+  if (now < backfillTokenRetryNotBefore) {
+    if (backfillTokenCache && backfillTokenCache.baseUrl === baseUrl && backfillTokenCache.expiresAt > now) {
+      return backfillTokenCache.token;
+    }
+    const waitSec = Math.ceil((backfillTokenRetryNotBefore - now) / 1000);
+    throw new Error(`KIS_TOKEN_COOLDOWN:${waitSec}`);
+  }
+  let t;
+  try {
+    t = await fetchKisAccessToken(baseUrl, appKey, appSecret);
+    backfillTokenRetryNotBefore = 0;
+  } catch (e) {
+    const msg = String(e);
+    if (msg.includes("EGW00133") || msg.includes("접근토큰 발급 잠시 후 다시 시도하세요")) {
+      backfillTokenRetryNotBefore = Date.now() + 65_000;
+    }
+    throw e;
+  }
   const exp = Date.parse(String(t.access_token_token_expired ?? "").replace(" ", "T"));
   backfillTokenCache = {
     baseUrl,
