@@ -7,6 +7,7 @@ import type { PrismaClient } from "@prisma/client";
 import type { preHandlerHookHandler } from "fastify";
 import type { Env } from "../config.js";
 import { sendZodError } from "../lib/errors.js";
+import { getNaverIndustryMajorName, getNaverIndustryMajorNames } from "../lib/naver-industry-major-name.js";
 import { countActiveStocks, getMaxActiveStocks } from "../lib/stock-limits.js";
 import {
   maybeBackfillKisChartHistory,
@@ -96,11 +97,19 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
           industryByCode.set(code, await fetchIndustryMajorCodeFromNaver(code));
         }),
       );
-      const items = baseItems.map((x) => ({
+      const itemsRaw = baseItems.map((x) => ({
         ...x,
         themeNames: themeNamesByCode.get(x.code) ?? [],
         industryMajorCode: linkedIndustryByCode.get(x.code) ?? industryByCode.get(x.code) ?? null,
       }));
+      const nameByIndustry = await getNaverIndustryMajorNames(itemsRaw.map((x) => x.industryMajorCode));
+      const items = itemsRaw.map((x) => {
+        const ic = x.industryMajorCode?.trim() ?? "";
+        return {
+          ...x,
+          industryMajorName: ic ? (nameByIndustry.get(ic) ?? null) : null,
+        };
+      });
       return { items };
     } catch {
       return reply.status(502).send({ error: { code: "UPSTREAM_ERROR", message: "종목 검색 실패" } });
@@ -115,21 +124,26 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
         themeMaps: { include: { theme: true } },
       },
     });
+    const nameByIndustry = await getNaverIndustryMajorNames(rows.map((r) => r.industryMajorCode));
     return {
-      stocks: rows.map((s) => ({
-        id: s.id,
-        code: s.code,
-        name: s.name,
-        industryMajorCode: s.industryMajorCode,
-        searchAlias: s.searchAlias,
-        isActive: s.isActive,
-        themes: s.themeMaps
-          .filter((m) => m.theme.isActive)
-          .map((m) => ({
-            id: m.theme.id,
-            name: m.theme.name,
-          })),
-      })),
+      stocks: rows.map((s) => {
+        const ic = s.industryMajorCode?.trim() ?? "";
+        return {
+          id: s.id,
+          code: s.code,
+          name: s.name,
+          industryMajorCode: s.industryMajorCode,
+          industryMajorName: ic ? (nameByIndustry.get(ic) ?? null) : null,
+          searchAlias: s.searchAlias,
+          isActive: s.isActive,
+          themes: s.themeMaps
+            .filter((m) => m.theme.isActive)
+            .map((m) => ({
+              id: m.theme.id,
+              name: m.theme.name,
+            })),
+        };
+      }),
     };
   });
 
@@ -193,12 +207,15 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     if (!s) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
     }
+    const ic = s.industryMajorCode?.trim() ?? "";
+    const industryMajorName = ic ? await getNaverIndustryMajorName(ic) : null;
     return {
       stock: {
         id: s.id,
         code: s.code,
         name: s.name,
         industryMajorCode: s.industryMajorCode,
+        industryMajorName,
         searchAlias: s.searchAlias,
         isActive: s.isActive,
         themes: s.themeMaps

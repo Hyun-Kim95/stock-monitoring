@@ -8,6 +8,7 @@ type Stock = {
   code: string;
   name: string;
   industryMajorCode: string | null;
+  industryMajorName: string | null;
   searchAlias: string | null;
   isActive: boolean;
   themes: { id: string; name: string }[];
@@ -18,6 +19,7 @@ type StockSearchItem = {
   market: string | null;
   themeNames: string[];
   industryMajorCode: string | null;
+  industryMajorName: string | null;
 };
 type ThemeBrief = { id: string; name: string };
 
@@ -185,6 +187,11 @@ export default function AdminStocksPage() {
                   }}
                 >
                   <strong>{it.name}</strong> ({it.code}){it.market ? ` · ${it.market}` : ""}
+                  {it.industryMajorName ? (
+                    <span style={{ display: "block", marginTop: 4, fontSize: 12, color: "var(--muted-foreground)" }}>
+                      산업대분류: {it.industryMajorName}
+                    </span>
+                  ) : null}
                   {it.themeNames.length > 0 ? (
                     <span style={{ display: "block", marginTop: 4, fontSize: 12, color: "var(--muted-foreground)" }}>
                       테마: {it.themeNames.join(", ")}
@@ -203,11 +210,11 @@ export default function AdminStocksPage() {
             <input value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
           <div className="form-row">
-            <label>업종(산업대분류코드)</label>
+            <label>업종(네이버 산업대분류 번호)</label>
             <input
               value={industryMajorCode}
               onChange={(e) => setIndustryMajorCode(e.target.value)}
-              placeholder="예: 278"
+              placeholder="예: 278 (화면에는 업종명으로 표시)"
             />
           </div>
           <div className="form-row">
@@ -259,7 +266,7 @@ export default function AdminStocksPage() {
                   <th>코드</th>
                   <th>이름</th>
                   <th>별칭</th>
-                  <th>업종코드</th>
+                  <th>산업대분류</th>
                   <th />
                 </tr>
               </thead>
@@ -269,7 +276,9 @@ export default function AdminStocksPage() {
                     <td>{s.code}</td>
                     <td>{s.name}</td>
                     <td style={{ color: "var(--muted-foreground)", fontSize: 12 }}>{s.searchAlias ?? "—"}</td>
-                    <td style={{ color: "var(--muted-foreground)", fontSize: 12 }}>{s.industryMajorCode ?? "—"}</td>
+                    <td style={{ color: "var(--muted-foreground)", fontSize: 12 }} title={s.industryMajorCode ?? undefined}>
+                      {s.industryMajorName ?? "—"}
+                    </td>
                     <td>
                       <button
                         type="button"

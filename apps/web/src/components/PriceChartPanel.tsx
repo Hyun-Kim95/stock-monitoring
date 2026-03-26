@@ -281,11 +281,14 @@ export function PriceChartPanel({
   stockId,
   stockName,
   stockCode,
+  industryMajorName,
   liveQuote,
 }: {
   stockId: string;
   stockName: string;
   stockCode?: string;
+  /** 네이버 업종 번호에 대응하는 산업대분류 명칭 */
+  industryMajorName?: string | null;
   liveQuote?: QuoteSnapshot;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -503,6 +506,11 @@ export function PriceChartPanel({
             </span>
           ) : null}
         </div>
+        {industryMajorName ? (
+          <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginBottom: 8, lineHeight: 1.45 }}>
+            <strong style={{ color: "var(--text)", fontWeight: 600 }}>산업대분류</strong> {industryMajorName}
+          </div>
+        ) : null}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>봉 단위</span>
           {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (

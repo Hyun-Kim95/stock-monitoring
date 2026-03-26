@@ -36,6 +36,9 @@ export async function createApiApplication(env: Env): Promise<{
   /** `runAfterListen` 완료 전까지 신규 WS 클라이언트에도 로딩 상태 전달 */
   let marketStartupLoading = true;
 
+  /** 시세 틱만 오고 status를 안내면 UI에 "KIS 중지" 등이 고정됨 → 메시지 변경 시에만 status WS 송신 */
+  let lastBroadcastMarketStatus: string | undefined;
+
   let broadcastThrottleMs = 250;
   let snapshotThrottleTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -60,10 +63,23 @@ export async function createApiApplication(env: Env): Promise<{
     }, broadcastThrottleMs);
   }
 
+  function broadcastMarketStatusIfChanged() {
+    const msg = marketStatusMessage(market);
+    if (msg === lastBroadcastMarketStatus) return;
+    lastBroadcastMarketStatus = msg;
+    broadcastJson({
+      type: "status",
+      marketConnected: market.isConnected(),
+      message: msg,
+      loading: marketStartupLoading,
+    });
+  }
+
   const handleMarketQuotes = (quotes: QuoteSnapshot[]) => {
     quoteCache.setMany(quotes);
     scheduleSnapshotBroadcast();
     historyRecorder.record(quotes);
+    broadcastMarketStatusIfChanged();
   };
   market.onTick(handleMarketQuotes);
 
@@ -85,6 +101,7 @@ export async function createApiApplication(env: Env): Promise<{
       providerSetting: provRow?.settingValue ?? "mock",
       pollIntervalMs: pollMs,
     });
+    lastBroadcastMarketStatus = undefined;
     market.onTick(handleMarketQuotes);
     market.start(stocks.map((s) => ({ code: s.code, name: s.name })));
     quoteCache.setMany(market.getQuotes());
@@ -95,6 +112,7 @@ export async function createApiApplication(env: Env): Promise<{
       message: marketStatusMessage(market),
       loading: opts?.loading ?? false,
     });
+    lastBroadcastMarketStatus = marketStatusMessage(market);
   }
 
   async function refreshBroadcastThrottle() {
@@ -182,6 +200,7 @@ export async function createApiApplication(env: Env): Promise<{
         message: "시세·히스토리 준비 중…",
         loading: true,
       });
+      lastBroadcastMarketStatus = "시세·히스토리 준비 중…";
       await reloadMarketFromDb({ loading: true });
       try {
         await runStartupQuoteHistoryPrep(prisma, env);
@@ -196,6 +215,7 @@ export async function createApiApplication(env: Env): Promise<{
         message: marketStatusMessage(market),
         loading: false,
       });
+      lastBroadcastMarketStatus = marketStatusMessage(market);
     }
   }
 

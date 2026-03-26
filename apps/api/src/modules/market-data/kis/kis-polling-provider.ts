@@ -246,6 +246,8 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
   return {
     start(nextSymbols) {
       this.stop();
+      // stop()이 statusMessage를 "KIS 중지"로 두면, 첫 tick 전에 브로드캐스트된 UI가 그대로 남습니다.
+      statusMessage = "KIS 연결 중…";
       symbols.length = 0;
       symbols.push(...nextSymbols);
       lastQuotes = [];

@@ -15,6 +15,8 @@ type StockApi = {
   id: string;
   code: string;
   name: string;
+  industryMajorCode: string | null;
+  industryMajorName: string | null;
   searchAlias: string | null;
   themes: ThemeBrief[];
 };
@@ -314,6 +316,7 @@ export function DashboardPage() {
                 stockId={selected.id}
                 stockName={selected.name}
                 stockCode={selected.code}
+                industryMajorName={selected.industryMajorName}
                 liveQuote={quotes.get(selected.code)}
               />
             </div>
