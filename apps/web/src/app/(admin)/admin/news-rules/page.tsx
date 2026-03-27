@@ -13,6 +13,19 @@ type Rule = {
   isActive: boolean;
 };
 
+function scopeLabel(scope: Rule["scope"]): string {
+  return scope === "GLOBAL" ? "전역" : "종목";
+}
+
+type RuleDraft = {
+  scope: Rule["scope"];
+  stockId: string;
+  includeKeyword: string;
+  excludeKeyword: string;
+  priority: number;
+  isActive: boolean;
+};
+
 export default function AdminNewsRulesPage() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [stocks, setStocks] = useState<{ id: string; code: string; name: string }[]>([]);
@@ -22,6 +35,8 @@ export default function AdminNewsRulesPage() {
   const [includeKw, setIncludeKw] = useState("");
   const [excludeKw, setExcludeKw] = useState("");
   const [priority, setPriority] = useState(0);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<RuleDraft | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -69,6 +84,45 @@ export default function AdminNewsRulesPage() {
       await load();
     } catch (ex) {
       setErr(ex instanceof ApiError ? JSON.stringify(ex.body) : "삭제 실패");
+    }
+  }
+
+  function startEdit(rule: Rule) {
+    setEditingRuleId(rule.id);
+    setDraft({
+      scope: rule.scope,
+      stockId: rule.stockId ?? "",
+      includeKeyword: rule.includeKeyword ?? "",
+      excludeKeyword: rule.excludeKeyword ?? "",
+      priority: rule.priority,
+      isActive: rule.isActive,
+    });
+  }
+
+  function cancelEdit() {
+    setEditingRuleId(null);
+    setDraft(null);
+  }
+
+  async function saveEdit(id: string) {
+    if (!draft) return;
+    if (draft.scope === "STOCK" && !draft.stockId) {
+      setErr("종목 범위는 종목 선택이 필요합니다.");
+      return;
+    }
+    try {
+      await apiSend(`/news-rules/${id}`, "PATCH", {
+        scope: draft.scope,
+        stockId: draft.scope === "STOCK" ? draft.stockId : null,
+        includeKeyword: draft.includeKeyword || null,
+        excludeKeyword: draft.excludeKeyword || null,
+        priority: draft.priority,
+        isActive: draft.isActive,
+      });
+      await load();
+      cancelEdit();
+    } catch (ex) {
+      setErr(ex instanceof ApiError ? JSON.stringify(ex.body) : "수정 실패");
     }
   }
 
@@ -133,24 +187,145 @@ export default function AdminNewsRulesPage() {
                 <th>포함</th>
                 <th>제외</th>
                 <th>우선</th>
+                <th>활성</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {rules.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.scope}</td>
-                  <td>{r.stockId ? (stockLabelById.get(r.stockId) ?? r.stockId) : "—"}</td>
-                  <td>{r.includeKeyword ?? "—"}</td>
-                  <td>{r.excludeKeyword ?? "—"}</td>
-                  <td>{r.priority}</td>
-                  <td>
-                    <button type="button" className="danger" onClick={() => void removeRule(r.id)}>
-                      삭제
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {rules.map((r) => {
+                const isEditing = editingRuleId === r.id && draft !== null;
+                return (
+                  <tr key={r.id}>
+                    <td>
+                      {isEditing ? (
+                        <select
+                          value={draft.scope}
+                          onChange={(e) =>
+                            setDraft((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    scope: e.target.value as Rule["scope"],
+                                    stockId: e.target.value === "GLOBAL" ? "" : prev.stockId,
+                                  }
+                                : prev,
+                            )
+                          }
+                        >
+                          <option value="GLOBAL">전역</option>
+                          <option value="STOCK">종목</option>
+                        </select>
+                      ) : (
+                        scopeLabel(r.scope)
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        draft.scope === "STOCK" ? (
+                          <select
+                            value={draft.stockId}
+                            onChange={(e) =>
+                              setDraft((prev) => (prev ? { ...prev, stockId: e.target.value } : prev))
+                            }
+                          >
+                            <option value="">선택</option>
+                            {stocks.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name} ({s.code})
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          "—"
+                        )
+                      ) : r.stockId ? (
+                        stockLabelById.get(r.stockId) ?? r.stockId
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input
+                          value={draft.includeKeyword}
+                          onChange={(e) =>
+                            setDraft((prev) => (prev ? { ...prev, includeKeyword: e.target.value } : prev))
+                          }
+                        />
+                      ) : (
+                        r.includeKeyword ?? "—"
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input
+                          value={draft.excludeKeyword}
+                          onChange={(e) =>
+                            setDraft((prev) => (prev ? { ...prev, excludeKeyword: e.target.value } : prev))
+                          }
+                        />
+                      ) : (
+                        r.excludeKeyword ?? "—"
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          value={draft.priority}
+                          onChange={(e) =>
+                            setDraft((prev) =>
+                              prev ? { ...prev, priority: Number(e.target.value) || 0 } : prev,
+                            )
+                          }
+                          style={{ width: 80 }}
+                        />
+                      ) : (
+                        r.priority
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <input
+                            type="checkbox"
+                            checked={draft.isActive}
+                            onChange={(e) =>
+                              setDraft((prev) => (prev ? { ...prev, isActive: e.target.checked } : prev))
+                            }
+                          />
+                          사용
+                        </label>
+                      ) : r.isActive ? (
+                        "사용"
+                      ) : (
+                        "중지"
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {isEditing ? (
+                        <>
+                          <button type="button" className="primary" onClick={() => void saveEdit(r.id)}>
+                            저장
+                          </button>{" "}
+                          <button type="button" className="btn btn-secondary" onClick={cancelEdit}>
+                            취소
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" className="btn btn-secondary" onClick={() => startEdit(r)}>
+                            수정
+                          </button>{" "}
+                          <button type="button" className="danger" onClick={() => void removeRule(r.id)}>
+                            삭제
+                          </button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
