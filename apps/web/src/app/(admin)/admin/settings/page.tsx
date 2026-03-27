@@ -6,15 +6,14 @@ import { ApiError, apiGet, apiSend } from "@/lib/api-client";
 type SettingRow = {
   key: string;
   value: string;
-  masked: boolean;
   updatedAt: string;
 };
 
 export default function AdminSettingsPage() {
   const [settings, setSettings] = useState<SettingRow[]>([]);
   const [err, setErr] = useState<string | null>(null);
-  const [key, setKey] = useState("market_data.provider");
-  const [value, setValue] = useState("mock");
+  const [key, setKey] = useState("");
+  const [value, setValue] = useState("");
   const [selectedSettingKey, setSelectedSettingKey] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -33,6 +32,10 @@ export default function AdminSettingsPage() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (!selectedSettingKey || !key) {
+      setErr("아래 표에서 수정할 setting_key를 먼저 선택하세요.");
+      return;
+    }
     try {
       await apiSend(`/settings/${encodeURIComponent(key)}`, "PUT", { value });
       await load();
@@ -60,27 +63,23 @@ export default function AdminSettingsPage() {
 
       <form className="panel" onSubmit={save} style={{ padding: 12, marginBottom: 16 }}>
         <div className="panel-h" style={{ margin: "-12px -12px 12px" }}>
-          키-값 갱신 (민감키는 마스킹되어 표시)
+          키-값 갱신
         </div>
         <div className="form-row">
           <label>setting_key</label>
-          <input value={key} onChange={(e) => setKey(e.target.value)} required />
+          <input value={key} readOnly placeholder="아래 표에서 선택" required />
         </div>
         <div className="form-row">
-          <label>새 값 (저장 시 서버에 평문 저장)</label>
+          <label>새 값</label>
           <input
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder={
-              selectedSettingKey &&
-              settings.find((r) => r.key === selectedSettingKey)?.masked
-                ? "마스킹된 항목 — 실제 값을 다시 입력하세요"
-                : undefined
-            }
+            placeholder={selectedSettingKey ? undefined : "아래 표에서 키를 선택하세요"}
             required
+            disabled={!selectedSettingKey}
           />
         </div>
-        <button type="submit" className="primary">
+        <button type="submit" className="primary" disabled={!selectedSettingKey}>
           저장
         </button>
       </form>
@@ -98,8 +97,7 @@ export default function AdminSettingsPage() {
             <thead>
               <tr>
                 <th>키</th>
-                <th>값 (표시)</th>
-                <th>마스킹</th>
+                <th>값</th>
                 <th>갱신</th>
               </tr>
             </thead>
@@ -116,13 +114,12 @@ export default function AdminSettingsPage() {
                     onClick={() => {
                       setSelectedSettingKey(s.key);
                       setKey(s.key);
-                      setValue(s.masked ? "" : s.value);
+                      setValue(s.value);
                       setErr(null);
                     }}
                   >
                     <td>{s.key}</td>
                     <td>{s.value}</td>
-                    <td>{s.masked ? "예" : "아니오"}</td>
                     <td>{new Date(s.updatedAt).toLocaleString("ko-KR")}</td>
                   </tr>
                 );

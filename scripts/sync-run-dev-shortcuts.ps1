@@ -37,4 +37,14 @@ Write-Host "바탕화면: $deskLink"
 $startLink = Join-Path $startup "stockMonitoring dev.lnk"
 Set-DevShortcut -LinkPath $startLink -Arguments "--startup" -WindowStyle 7 -Comment "stockMonitoring dev (Windows 시작 시, 최소화)"
 Write-Host "시작 프로그램: $startLink"
+
+# 예전에 .vbs로 run-dev를 띄우던 경우, 시작 프로그램에 lnk+vbs가 같이 있으면 서버가 두 번 실행됨
+$vbsMaybeDup = Get-ChildItem -LiteralPath $startup -File -ErrorAction SilentlyContinue |
+  Where-Object { $_.Extension -ieq ".vbs" -and ($_.Name -match "stock|monitor|run-dev") }
+if ($vbsMaybeDup) {
+  Write-Host ""
+  Write-Warning "시작 프로그램에 아래 .vbs가 있으면 'stockMonitoring dev.lnk'와 중복입니다. .vbs는 삭제하고 .lnk만 두세요."
+  $vbsMaybeDup | ForEach-Object { Write-Host "    $($_.FullName)" }
+}
+
 Write-Host "완료."

@@ -57,7 +57,8 @@ if "%STARTUP_MODE%"=="0" (
   echo.
 )
 
-start "" cmd /c "timeout /t 8 >nul && start http://localhost:3000"
+REM Extra cmd window would look like a second screen at login — use hidden PowerShell for delay + browser.
+start "" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Sleep -Seconds 8; Start-Process 'http://localhost:3000'"
 
 call npm run dev
 set "EXIT_CODE=%ERRORLEVEL%"

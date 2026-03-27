@@ -11,6 +11,8 @@ dotenv.config({ path: path.join(repoRoot, ".env.local"), override: true });
 
 const nextConfig: NextConfig = {
   transpilePackages: ["@stock-monitoring/shared"],
+  /** 개발 모드 좌하단 N 인디케이터 숨김 */
+  devIndicators: false,
 };
 
 export default nextConfig;

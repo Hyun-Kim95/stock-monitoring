@@ -41,6 +41,8 @@ export default function AdminNewsRulesPage() {
     void load();
   }, [load]);
 
+  const stockLabelById = new Map(stocks.map((s) => [s.id, `${s.name} (${s.code})`]));
+
   async function createRule(e: React.FormEvent) {
     e.preventDefault();
     try {
@@ -138,7 +140,7 @@ export default function AdminNewsRulesPage() {
               {rules.map((r) => (
                 <tr key={r.id}>
                   <td>{r.scope}</td>
-                  <td>{r.stockId ?? "—"}</td>
+                  <td>{r.stockId ? (stockLabelById.get(r.stockId) ?? r.stockId) : "—"}</td>
                   <td>{r.includeKeyword ?? "—"}</td>
                   <td>{r.excludeKeyword ?? "—"}</td>
                   <td>{r.priority}</td>

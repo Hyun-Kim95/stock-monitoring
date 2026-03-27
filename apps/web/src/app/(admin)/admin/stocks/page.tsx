@@ -30,6 +30,7 @@ export default function AdminStocksPage() {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [industryMajorCode, setIndustryMajorCode] = useState("");
+  const [industryMajorName, setIndustryMajorName] = useState("");
   const [alias, setAlias] = useState("");
   const [themesText, setThemesText] = useState("");
   const [selectedThemeIds, setSelectedThemeIds] = useState<Set<string>>(new Set());
@@ -76,6 +77,7 @@ export default function AdminStocksPage() {
     setCode(item.code);
     setName(item.name);
     setIndustryMajorCode(item.industryMajorCode ?? "");
+    setIndustryMajorName(item.industryMajorName ?? "");
     const byName = new Map(themes.map((t) => [t.name.toLowerCase(), t.id]));
     const nextSelected = new Set<string>();
     for (const tn of item.themeNames) {
@@ -91,6 +93,7 @@ export default function AdminStocksPage() {
     setCode(s.code);
     setName(s.name);
     setIndustryMajorCode(s.industryMajorCode ?? "");
+    setIndustryMajorName(s.industryMajorName ?? "");
     setAlias(s.searchAlias ?? "");
     setThemesText("");
     setSelectedThemeIds(new Set(s.themes.map((t) => t.id)));
@@ -127,6 +130,7 @@ export default function AdminStocksPage() {
       setCode("");
       setName("");
       setIndustryMajorCode("");
+      setIndustryMajorName("");
       setAlias("");
       setThemesText("");
       setSelectedThemeIds(new Set());
@@ -161,6 +165,12 @@ export default function AdminStocksPage() {
               <input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void searchStocks();
+                  }
+                }}
                 placeholder="예: sk이터닉스"
               />
               <button type="button" onClick={() => void searchStocks()}>
@@ -210,12 +220,13 @@ export default function AdminStocksPage() {
             <input value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
           <div className="form-row">
-            <label>업종(네이버 산업대분류 번호)</label>
-            <input
-              value={industryMajorCode}
-              onChange={(e) => setIndustryMajorCode(e.target.value)}
-              placeholder="예: 278 (화면에는 업종명으로 표시)"
-            />
+            <label>업종(산업대분류)</label>
+            <input value={industryMajorName} readOnly placeholder="종목 검색 후 자동 입력" />
+            {industryMajorCode ? (
+              <div style={{ marginTop: 4, fontSize: 11, color: "var(--muted-foreground)" }}>
+                내부 코드: {industryMajorCode}
+              </div>
+            ) : null}
           </div>
           <div className="form-row">
             <label>검색 별칭 (쉼표 구분)</label>

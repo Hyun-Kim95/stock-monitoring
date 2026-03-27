@@ -1,29 +1,24 @@
 import Link from "next/link";
+import { AdminNav } from "./AdminNav";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 16,
-          padding: "10px 16px",
-          borderBottom: "1px solid var(--border)",
-          flexWrap: "wrap",
-        }}
-      >
-        <Link href="/" style={{ fontWeight: 700 }}>
-          ← 대시보드
-        </Link>
-        <nav style={{ display: "flex", gap: 12 }}>
-          <Link href="/admin/stocks">종목</Link>
-          <Link href="/admin/themes">테마</Link>
-          <Link href="/admin/news-rules">뉴스 규칙</Link>
-          <Link href="/admin/settings">설정</Link>
-        </nav>
-      </header>
-      <main style={{ padding: 16, flex: 1 }}>{children}</main>
+    <div className="admin-shell">
+      <aside className="admin-sidebar">
+        <div className="admin-brand">
+          <div className="admin-brand-title">Admin Console</div>
+          <div className="admin-brand-sub">stockMonitoring 운영</div>
+        </div>
+        <AdminNav />
+        <div className="admin-sidebar-footer">
+          <Link href="/" className="admin-back-link">
+            ← 대시보드로 돌아가기
+          </Link>
+        </div>
+      </aside>
+      <main className="admin-main">
+        <div className="admin-main-inner">{children}</div>
+      </main>
     </div>
   );
 }

@@ -216,7 +216,13 @@ export function DashboardPage() {
             style={{ minWidth: 200 }}
           />
           <ThemeToggle />
-          <Link href="/admin/stocks">관리자</Link>
+          <Link
+            href="/admin/stocks"
+            className="btn btn-secondary"
+            style={{ textDecoration: "none", fontSize: 12, padding: "4px 10px" }}
+          >
+            관리자
+          </Link>
         </div>
       </header>
 
@@ -317,6 +323,7 @@ export function DashboardPage() {
                 stockName={selected.name}
                 stockCode={selected.code}
                 industryMajorName={selected.industryMajorName}
+                themeNames={selected.themes.map((t) => t.name)}
                 liveQuote={quotes.get(selected.code)}
               />
             </div>
@@ -345,26 +352,23 @@ export function DashboardPage() {
               <div style={{ color: "var(--muted-foreground)" }}>표시할 테마가 없습니다. 종목에 테마를 연결하세요.</div>
             ) : (
               <>
-                {portfolioThemes.map((t) => {
-                  const on = themeFilterIds.includes(t.id);
-                  return (
-                    <div key={t.id} style={{ marginBottom: 6 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {portfolioThemes.map((t) => {
+                    const on = themeFilterIds.includes(t.id);
+                    return (
                       <button
+                        key={t.id}
                         type="button"
                         onClick={() => toggleThemeFilter(t.id)}
-                        style={{
-                          width: "100%",
-                          textAlign: "left",
-                          background: on ? "rgba(88,166,255,0.22)" : undefined,
-                          border: on ? "1px solid rgba(88,166,255,0.45)" : "1px solid transparent",
-                        }}
+                        className={on ? "primary" : "btn btn-secondary"}
+                        style={{ fontSize: 12, padding: "4px 10px" }}
+                        title={on ? "필터 적용됨" : "필터에 추가"}
                       >
                         {t.name}
-                        {on ? " · 필터 적용" : ""}
                       </button>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
                 {themeFilterIds.length > 0 ? (
                   <button type="button" style={{ marginTop: 10 }} onClick={() => setThemeFilterIds([])}>
                     테마 필터 전체 해제

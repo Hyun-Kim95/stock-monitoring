@@ -8,6 +8,17 @@ function isUpjongNo(raw: string): boolean {
   return /^\d{1,5}$/.test(raw.trim());
 }
 
+/** 업종 원문을 테마/화면에 읽기 쉬운 형태로 정규화 */
+export function normalizeIndustryMajorLabel(raw: string): string {
+  return raw
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/,/g, "·")
+    .replace(/([가-힣A-Za-z0-9])(?:와|과|및)([가-힣A-Za-z0-9])/g, "$1·$2")
+    .replace(/·{2,}/g, "·")
+    .replace(/^\.+|\.+$/g, "");
+}
+
 export async function getNaverIndustryMajorName(industryMajorCode: string): Promise<string | null> {
   const code = industryMajorCode.trim();
   if (!code || !isUpjongNo(code)) return null;
@@ -35,7 +46,7 @@ export async function getNaverIndustryMajorName(industryMajorCode: string): Prom
       return null;
     }
     const title = html.slice(open + 7, close).trim();
-    const name = title.split(":")[0]?.trim() ?? "";
+    const name = normalizeIndustryMajorLabel(title.split(":")[0]?.trim() ?? "");
     if (!name || /오류|error|not found|404/i.test(name)) {
       cache.set(code, null);
       return null;

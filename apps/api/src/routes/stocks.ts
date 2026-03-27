@@ -3,11 +3,16 @@ import {
   StockCreateSchema,
   StockUpdateSchema,
 } from "@stock-monitoring/shared";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import type { preHandlerHookHandler } from "fastify";
 import type { Env } from "../config.js";
 import { sendZodError } from "../lib/errors.js";
-import { getNaverIndustryMajorName, getNaverIndustryMajorNames } from "../lib/naver-industry-major-name.js";
+import { logError } from "../lib/logger.js";
+import {
+  getNaverIndustryMajorName,
+  getNaverIndustryMajorNames,
+  normalizeIndustryMajorLabel,
+} from "../lib/naver-industry-major-name.js";
 import { countActiveStocks, getMaxActiveStocks } from "../lib/stock-limits.js";
 import {
   maybeBackfillKisChartHistory,
@@ -25,6 +30,9 @@ type Ctx = {
 
 export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
   const { prisma, adminPre, reloadMarket, env } = ctx;
+  type Tx = Prisma.TransactionClient;
+  /** 종목별 당일 분봉 KIS 보강 진행 상태 (UI 배지/상태 노출용) */
+  const minuteBackfillInProgressByCode = new Map<string, boolean>();
 
   async function fetchIndustryMajorCodeFromNaver(code: string): Promise<string | null> {
     try {
@@ -38,6 +46,35 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     } catch {
       return null;
     }
+  }
+
+  async function upsertThemeByName(tx: Tx, rawName: string, description: string | null) {
+    const name = normalizeIndustryMajorLabel(rawName);
+    if (!name) return null;
+    const found = await tx.theme.findFirst({
+      where: { name: { equals: name, mode: "insensitive" } },
+    });
+    if (found) {
+      if (!found.isActive) {
+        return tx.theme.update({ where: { id: found.id }, data: { isActive: true } });
+      }
+      return found;
+    }
+    return tx.theme.create({ data: { name, isActive: true, description } });
+  }
+
+  async function linkIndustryTheme(tx: Tx, stockId: string, industryMajorCode: string | null | undefined) {
+    const code = industryMajorCode?.trim() ?? "";
+    if (!code) return;
+    const industryName = await getNaverIndustryMajorName(code);
+    if (!industryName) return;
+    const theme = await upsertThemeByName(tx, industryName, `네이버 산업대분류(${code}) 자동 매핑`);
+    if (!theme) return;
+    await tx.stockThemeMap.upsert({
+      where: { stockId_themeId: { stockId, themeId: theme.id } },
+      create: { stockId, themeId: theme.id },
+      update: {},
+    });
   }
 
   app.get("/stocks/search", async (request, reply) => {
@@ -149,7 +186,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.get("/stocks/:id/chart", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const q = request.query as { granularity?: string; range?: string };
+    const q = request.query as { granularity?: string; range?: string; limit?: string };
     const rawG = q.granularity ?? "day";
     const rawR = q.range ?? "normal";
     const allowedG: ChartGranularity[] = ["minute", "day", "month", "year"];
@@ -172,6 +209,9 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     const granularity = rawG as ChartGranularity;
     const range = rawR as ChartRange;
+    const rawLimit = Number(q.limit);
+    const limitOverride =
+      Number.isFinite(rawLimit) && rawLimit > 0 ? Math.max(10, Math.min(20_000, Math.floor(rawLimit))) : undefined;
     const stock = await prisma.stock.findUnique({ where: { id } });
     if (!stock) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
@@ -182,11 +222,21 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     const useKis = provRow?.settingValue?.trim().toLowerCase() === "kis";
     if (useKis) {
       if (granularity === "minute") {
-        await maybeBackfillKisMinuteToday(prisma, env, stock.code);
+        // 분봉은 클릭 즉시 차트를 보여주고(현재 DB 기준), 당일 분봉 보강은 백그라운드에서 진행.
+        // 그렇지 않으면 KIS 호출/페이지네이션 대기 때문에 최초 응답이 길어져 '캔들 1개' 상태가 오래 보일 수 있다.
+        minuteBackfillInProgressByCode.set(stock.code, true);
+        void maybeBackfillKisMinuteToday(prisma, env, stock.code).catch((e) => {
+          logError("maybeBackfillKisMinuteToday failed", { stockCode: stock.code, err: String(e) });
+        }).finally(() => {
+          minuteBackfillInProgressByCode.set(stock.code, false);
+        });
+      } else {
+        await maybeBackfillKisChartHistory(prisma, env, stock.code);
       }
-      await maybeBackfillKisChartHistory(prisma, env, stock.code);
     }
-    const { candles, meta } = await fetchChart(prisma, stock.code, granularity, range);
+    const { candles, meta } = await fetchChart(prisma, stock.code, granularity, range, { limitOverride });
+    const minuteBackfillInProgress =
+      granularity === "minute" ? (minuteBackfillInProgressByCode.get(stock.code) ?? false) : false;
     return {
       stockId: stock.id,
       code: stock.code,
@@ -194,7 +244,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
       granularity,
       range,
       candles,
-      meta,
+      meta: { ...meta, minuteBackfillInProgress },
     };
   });
 
@@ -258,22 +308,17 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
         if (themeNames.length > 0) {
           const themes = [];
           for (const rawName of themeNames) {
-            const name = rawName.trim();
+            const name = normalizeIndustryMajorLabel(rawName);
             if (!name) continue;
-            const found = await tx.theme.findFirst({
-              where: { name: { equals: name, mode: "insensitive" } },
-            });
-            if (found) {
-              themes.push(await tx.theme.update({ where: { id: found.id }, data: { isActive: true } }));
-            } else {
-              themes.push(await tx.theme.create({ data: { name, isActive: true, description: null } }));
-            }
+            const theme = await upsertThemeByName(tx, name, null);
+            if (theme) themes.push(theme);
           }
           await tx.stockThemeMap.createMany({
             data: themes.map((t) => ({ stockId: stock.id, themeId: t.id })),
             skipDuplicates: true,
           });
         }
+        await linkIndustryTheme(tx, stock.id, b.industryMajorCode ?? null);
         return stock;
       });
 
@@ -304,11 +349,15 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
       }
     }
     try {
-      const { code, ...rest } = parsed.data;
-      const data = code !== undefined ? { ...rest, code } : rest;
-      const updated = await prisma.stock.update({
-        where: { id },
-        data,
+      const updated = await prisma.$transaction(async (tx) => {
+        const { code, ...rest } = parsed.data;
+        const data = code !== undefined ? { ...rest, code } : rest;
+        const row = await tx.stock.update({
+          where: { id },
+          data,
+        });
+        await linkIndustryTheme(tx, row.id, row.industryMajorCode);
+        return row;
       });
       await reloadMarket();
       return { stock: updated };

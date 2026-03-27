@@ -8,14 +8,13 @@ import type {
   MouseEventParams,
   Time,
   UTCTimestamp,
+  WhitespaceData,
 } from "lightweight-charts";
-import { chartRangeButtonLabel } from "@sm-shared/chart-range";
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
 import { ApiError, apiGet } from "@/lib/api-client";
 import { formatQuotePrice } from "@/lib/format-quote";
 
 type Granularity = "minute" | "day" | "month" | "year";
-type RangeKey = "compact" | "normal" | "deep" | "max";
 
 type ChartMeta = {
   windowFrom: string;
@@ -25,12 +24,14 @@ type ChartMeta = {
   historyFirstAt: string | null;
   historyLastAt: string | null;
   hintKo: string | null;
+  /** 분봉 선택 시 서버의 KIS 당일 분봉 보강 백그라운드 진행 상태 */
+  minuteBackfillInProgress?: boolean;
 };
 
 type ChartApi = {
   stockId: string;
   granularity: Granularity;
-  range: RangeKey;
+  range: "compact" | "normal" | "deep" | "max";
   candles: { t: string; open: number; high: number; low: number; close: number }[];
   name: string;
   code: string;
@@ -79,6 +80,57 @@ function kstMinuteStartUtcSec(now = new Date()): UTCTimestamp {
 /** 봉 시각(초)을 KST 분 시작 epoch으로 맞춤 — DB period와 클라이언트 now의 초 단위 차이로 === 비교가 깨지는 것 방지 */
 function minuteBucketUtcSec(barTimeSec: number): UTCTimestamp {
   return kstMinuteStartUtcSec(new Date(barTimeSec * 1000));
+}
+
+function kstYmdParts(d: Date): { y: string; m: string; day: string } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  const pick = (tp: Intl.DateTimeFormatPartTypes) => parts.find((x) => x.type === tp)?.value ?? "";
+  return { y: pick("year"), m: pick("month"), day: pick("day") };
+}
+
+const MINUTE_SEC = 60;
+/** 같은 장중에 봉이 비는 분을 캔들 없이 표시하기 위해 넣는 Whitespace 상한(과거일·장외 대형 갭은 시간축만 사용) */
+const MAX_MINUTE_GAP_FOR_WHITESPACE = 6 * 3600;
+const MAX_WHITESPACE_POINTS_TOTAL = 12_000;
+
+function kstDayKeyFromUtcSec(sec: number): string {
+  const d = new Date(sec * 1000);
+  const { y, m, day } = kstYmdParts(d);
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * 분봉 전용: 실제 시각 차이가 나는 구간에 빈 분 슬롯(Whitespace)을 넣어 시간축에서 캔들 없이 간격이 보이게 합니다.
+ * 전날 분봉을 API로 못 채운 경우처럼 큰 갭(장 마감~익일 등)은 분 단위를 전부 넣지 않고 라이브러리 시간축에 맡깁니다.
+ */
+function expandMinuteCandlesWithWhitespace(
+  candles: CandlestickData<UTCTimestamp>[],
+): Array<CandlestickData<UTCTimestamp> | WhitespaceData<UTCTimestamp>> {
+  if (candles.length === 0) return [];
+  const sorted = [...candles].sort((a, b) => Number(a.time) - Number(b.time));
+  const out: Array<CandlestickData<UTCTimestamp> | WhitespaceData<UTCTimestamp>> = [];
+  let wsTotal = 0;
+  for (let i = 0; i < sorted.length; i++) {
+    out.push(sorted[i]!);
+    if (i >= sorted.length - 1) break;
+    const cur = Number(sorted[i]!.time);
+    const next = Number(sorted[i + 1]!.time);
+    const gap = next - cur;
+    if (gap <= MINUTE_SEC) continue;
+    if (gap > MAX_MINUTE_GAP_FOR_WHITESPACE) continue;
+    const sameKstDay = kstDayKeyFromUtcSec(cur) === kstDayKeyFromUtcSec(next);
+    if (!sameKstDay) continue;
+    for (let t = cur + MINUTE_SEC; t < next && wsTotal < MAX_WHITESPACE_POINTS_TOTAL; t += MINUTE_SEC) {
+      out.push({ time: t as UTCTimestamp });
+      wsTotal++;
+    }
+  }
+  return out;
 }
 
 /** WebSocket 시세로 막대기 형성 중인 분봉을 실시간 반영 (DB는 1초 단위 저장) */
@@ -134,17 +186,6 @@ function mergeLiveMinuteBar(
     close: p,
   };
   return out;
-}
-
-function kstYmdParts(d: Date): { y: string; m: string; day: string } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(d);
-  const pick = (tp: Intl.DateTimeFormatPartTypes) => parts.find((x) => x.type === tp)?.value ?? "";
-  return { y: pick("year"), m: pick("month"), day: pick("day") };
 }
 
 /** 마지막 봉이 KST 기준 ‘현재 일·월·년’ 구간이면 WS 현재가로 종·고·저 보정 (일봉 기본 화면과 테이블 불일치 방지) */
@@ -282,6 +323,7 @@ export function PriceChartPanel({
   stockName,
   stockCode,
   industryMajorName,
+  themeNames,
   liveQuote,
 }: {
   stockId: string;
@@ -289,17 +331,19 @@ export function PriceChartPanel({
   stockCode?: string;
   /** 네이버 업종 번호에 대응하는 산업대분류 명칭 */
   industryMajorName?: string | null;
+  themeNames?: string[];
   liveQuote?: QuoteSnapshot;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const [granularity, setGranularity] = useState<Granularity>("day");
-  const [range, setRange] = useState<RangeKey>("normal");
+  const [barLimit, setBarLimit] = useState(2000);
   const [candles, setCandles] = useState<ChartApi["candles"]>([]);
   const [meta, setMeta] = useState<ChartMeta | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showAllThemes, setShowAllThemes] = useState(false);
   /** 크로스헤어가 가리키는 봉(OHLC) — 우측 가격 눈금만 보면 헷갈려서 별도 표시 */
   const [hoverBar, setHoverBar] = useState<{
     timeLabel: string;
@@ -324,10 +368,10 @@ export function PriceChartPanel({
     }
     try {
       const res = await apiGet<ChartApi>(
-        `/stocks/${stockId}/chart?granularity=${granularity}&range=${range}`,
+        `/stocks/${stockId}/chart?granularity=${granularity}&range=max&limit=${barLimit}`,
       );
       if (seq !== fetchSeqRef.current) return;
-      if (res.stockId !== stockId || res.granularity !== granularity || res.range !== range) return;
+      if (res.stockId !== stockId || res.granularity !== granularity) return;
       setCandles(res.candles);
       setMeta(res.meta);
       if (!soft) setErr(null);
@@ -345,11 +389,15 @@ export function PriceChartPanel({
     } finally {
       if (!soft && seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [stockId, granularity, range]);
+  }, [stockId, granularity, barLimit]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    setShowAllThemes(false);
+  }, [stockId]);
 
   useEffect(() => {
     if (granularity !== "minute") return;
@@ -362,14 +410,14 @@ export function PriceChartPanel({
 
   const lwBase = useMemo(() => toLwCandles(candles), [candles]);
   const lwData = useMemo(() => {
-    if (!stockCode) return lwBase;
-    let lw = lwBase;
     if (granularity === "minute") {
-      lw = mergeLiveMinuteBar(lw, liveQuote, stockCode);
-    } else {
-      lw = mergeLiveIntoAggregatedLastBar(lw, liveQuote, stockCode, granularity);
+      const merged = stockCode
+        ? mergeLiveMinuteBar(lwBase, liveQuote, stockCode)
+        : lwBase;
+      return expandMinuteCandlesWithWhitespace(merged);
     }
-    return lw;
+    if (!stockCode) return lwBase;
+    return mergeLiveIntoAggregatedLastBar(lwBase, liveQuote, stockCode, granularity);
   }, [lwBase, granularity, stockCode, liveQuote]);
 
   /** 종목·봉·범위·서버 캔들 개수가 바뀔 때만 차트 인스턴스를 새로 만듦 (실시간 시세는 아래 effect에서 setData) */
@@ -408,6 +456,7 @@ export function PriceChartPanel({
         layout: {
           background: { type: mod.ColorType.Solid, color: "transparent" },
           textColor: "rgba(180, 180, 180, 0.95)",
+          attributionLogo: false,
         },
         grid: {
           vertLines: { color: "rgba(128,128,128,0.12)" },
@@ -485,7 +534,7 @@ export function PriceChartPanel({
       seriesRef.current = null;
       setHoverBar(null);
     };
-  }, [stockId, granularity, range, lwBase.length]);
+  }, [stockId, granularity, barLimit, lwBase.length]);
 
   useEffect(() => {
     if (lwData.length === 0 || !seriesRef.current) return;
@@ -496,19 +545,32 @@ export function PriceChartPanel({
     <div style={{ minHeight: 200 }}>
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
-          <span style={{ fontWeight: 600, fontSize: 13 }}>캔들 차트 · {stockName}</span>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>{stockName}</span>
           {liveQuote ? (
-            <span style={{ fontSize: 13, fontWeight: 700 }}>
+            <span style={{ fontSize: 16, fontWeight: 800 }}>
               현재가 {formatQuotePrice(liveQuote)}
-              <span style={{ fontWeight: 500, color: "var(--muted-foreground)", marginLeft: 8, fontSize: 11 }}>
-                (실시간 · 표와 동일)
-              </span>
             </span>
           ) : null}
         </div>
         {industryMajorName ? (
           <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginBottom: 8, lineHeight: 1.45 }}>
             <strong style={{ color: "var(--text)", fontWeight: 600 }}>산업대분류</strong> {industryMajorName}
+          </div>
+        ) : null}
+        {themeNames && themeNames.length > 0 ? (
+          <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginBottom: 8, lineHeight: 1.45 }}>
+            <strong style={{ color: "var(--text)", fontWeight: 600 }}>테마</strong>{" "}
+            {(showAllThemes ? themeNames : themeNames.slice(0, 3)).join(" · ")}
+            {themeNames.length > 3 ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ fontSize: 11, padding: "1px 8px", marginLeft: 6 }}
+                onClick={() => setShowAllThemes((v) => !v)}
+              >
+                {showAllThemes ? "접기" : `더보기 +${themeNames.length - 3}`}
+              </button>
+            ) : null}
           </div>
         ) : null}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -526,24 +588,31 @@ export function PriceChartPanel({
           ))}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginTop: 6 }}>
-          <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>최근 봉 개수</span>
-          {(["compact", "normal", "deep", "max"] as const).map((r) => (
-            <button
-              key={r}
-              type="button"
-              className={range === r ? "primary" : "btn btn-secondary"}
-              style={{ fontSize: 12, padding: "4px 10px" }}
-              onClick={() => setRange(r)}
-              title={chartRangeButtonLabel(granularity, r)}
-            >
-              {chartRangeButtonLabel(granularity, r)}
-            </button>
-          ))}
+          <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>봉 개수</span>
+          <input
+            type="number"
+            min={10}
+            max={20000}
+            step={10}
+            value={barLimit}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (!Number.isFinite(n)) return;
+              setBarLimit(Math.max(10, Math.min(20_000, Math.floor(n))));
+            }}
+            style={{ width: 110 }}
+          />
+          {granularity === "minute" && meta?.minuteBackfillInProgress ? (
+            <span className="badge">분봉 보강 중…</span>
+          ) : null}
         </div>
       </div>
       <p style={{ margin: "0 0 8px", fontSize: 11, color: "var(--muted-foreground)", lineHeight: 1.45 }}>
         시세는 서버에서 최소 약 1초 간격으로 저장됩니다. <strong>일·월·년</strong> 마지막 봉은 오늘/이번 달/올해에
         해당할 때 WebSocket 현재가로 종가를 맞춥니다. <strong>분</strong> 봉은 같은 분 구간에서 실시간 반영됩니다.
+        <strong>분</strong> 봉은 같은 KST 거래일 안에서 시세가 없던 분은 캔들 없이 시간축만 비워 보입니다. 전날·장
+        마감~익일처럼 긴 구간은 분을 전부 채우지 않고 시간축 간격만 둡니다(전날 분봉은 API로 보강되지 않을 수
+        있음).
         크로스헤어의 종가는 <strong>해당 봉(히스토리)</strong>의 값입니다. 아래는 <strong>최근부터 최대 N개</strong> 봉이며,
         DB에 쌓인 기간이 짧으면 N보다 적게 보일 수 있습니다.
       </p>
@@ -594,21 +663,24 @@ export function PriceChartPanel({
       {lwData.length > 0 ? (
         <>
           <div ref={containerRef} style={{ width: "100%", height: 280, position: "relative" }} />
-          {hoverBar ? (
-            <div
-              style={{
-                marginTop: 8,
-                fontSize: 11,
-                lineHeight: 1.55,
-                color: "var(--muted-foreground)",
-              }}
-            >
-              <span style={{ color: "var(--text)", fontWeight: 600 }}>{hoverBar.timeLabel}</span>
-              {" · "}
-              시 {hoverBar.open.toLocaleString("ko-KR")} · 고 {hoverBar.high.toLocaleString("ko-KR")} · 저{" "}
-              {hoverBar.low.toLocaleString("ko-KR")} · 종 {hoverBar.close.toLocaleString("ko-KR")}
-            </div>
-          ) : null}
+          <div
+            style={{
+              marginTop: 8,
+              minHeight: 18,
+              fontSize: 11,
+              lineHeight: 1.55,
+              color: "var(--muted-foreground)",
+            }}
+          >
+            {hoverBar ? (
+              <>
+                <span style={{ color: "var(--text)", fontWeight: 600 }}>{hoverBar.timeLabel}</span>
+                {" · "}
+                시 {hoverBar.open.toLocaleString("ko-KR")} · 고 {hoverBar.high.toLocaleString("ko-KR")} · 저{" "}
+                {hoverBar.low.toLocaleString("ko-KR")} · 종 {hoverBar.close.toLocaleString("ko-KR")}
+              </>
+            ) : <span aria-hidden style={{ visibility: "hidden" }}>시 000 · 고 000 · 저 000 · 종 000</span>}
+          </div>
         </>
       ) : null}
     </div>

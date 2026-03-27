@@ -10,11 +10,19 @@ import {
 
 export type { ChartGranularity, ChartRange };
 
-function windowParams(granularity: ChartGranularity, range: ChartRange): { from: Date; cap: number } {
+function windowParams(
+  granularity: ChartGranularity,
+  range: ChartRange,
+  limitOverride?: number,
+): { from: Date; cap: number } {
   const { barCap, lookbackMs } = CHART_RANGE_MATRIX[granularity][range];
+  const capBase =
+    limitOverride != null && Number.isFinite(limitOverride)
+      ? Math.max(10, Math.min(20_000, Math.floor(limitOverride)))
+      : barCap;
   return {
     from: new Date(Date.now() - lookbackMs),
-    cap: Math.min(20_000, Math.max(10, barCap)),
+    cap: Math.min(20_000, Math.max(10, capBase)),
   };
 }
 
@@ -73,8 +81,9 @@ export async function fetchChart(
   stockCode: string,
   granularity: ChartGranularity,
   range: ChartRange,
+  opts?: { limitOverride?: number },
 ): Promise<ChartBundle> {
-  const { from, cap } = windowParams(granularity, range);
+  const { from, cap } = windowParams(granularity, range, opts?.limitOverride);
 
   const boundsPromise =
     granularity === "minute"

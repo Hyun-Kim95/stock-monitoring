@@ -11,15 +11,6 @@ type Ctx = {
   reloadMarket?: () => Promise<void>;
 };
 
-function maskValue(key: string, value: string): string {
-  const k = key.toUpperCase();
-  if (k.includes("SECRET") || k.includes("API_KEY") || k.endsWith("_KEY") || k.includes("TOKEN")) {
-    if (value.length <= 4) return "****";
-    return `${value.slice(0, 2)}…${value.slice(-2)}`;
-  }
-  return value;
-}
-
 export async function registerSettingsRoutes(app: FastifyInstance, ctx: Ctx) {
   const { prisma, adminPre, reloadMarket } = ctx;
 
@@ -28,8 +19,7 @@ export async function registerSettingsRoutes(app: FastifyInstance, ctx: Ctx) {
     return {
       settings: rows.map((r) => ({
         key: r.settingKey,
-        value: maskValue(r.settingKey, r.settingValue),
-        masked: maskValue(r.settingKey, r.settingValue) !== r.settingValue,
+        value: r.settingValue,
         updatedAt: r.updatedAt,
       })),
     };
@@ -44,8 +34,7 @@ export async function registerSettingsRoutes(app: FastifyInstance, ctx: Ctx) {
     return {
       setting: {
         key: row.settingKey,
-        value: maskValue(row.settingKey, row.settingValue),
-        masked: maskValue(row.settingKey, row.settingValue) !== row.settingValue,
+        value: row.settingValue,
         updatedAt: row.updatedAt,
       },
     };
@@ -55,10 +44,15 @@ export async function registerSettingsRoutes(app: FastifyInstance, ctx: Ctx) {
     const { key } = request.params as { key: string };
     const parsed = SettingUpsertSchema.safeParse(request.body);
     if (!parsed.success) return sendZodError(reply, parsed.error);
-    const row = await prisma.systemSetting.upsert({
+    const exists = await prisma.systemSetting.findUnique({ where: { settingKey: key } });
+    if (!exists) {
+      return reply.status(404).send({
+        error: { code: "NOT_FOUND", message: "존재하는 setting_key만 수정할 수 있습니다." },
+      });
+    }
+    const row = await prisma.systemSetting.update({
       where: { settingKey: key },
-      update: { settingValue: parsed.data.value },
-      create: { settingKey: key, settingValue: parsed.data.value },
+      data: { settingValue: parsed.data.value },
     });
     if (
       reloadMarket &&
@@ -69,7 +63,7 @@ export async function registerSettingsRoutes(app: FastifyInstance, ctx: Ctx) {
     return {
       setting: {
         key: row.settingKey,
-        value: maskValue(row.settingKey, row.settingValue),
+        value: row.settingValue,
         updatedAt: row.updatedAt,
       },
     };
