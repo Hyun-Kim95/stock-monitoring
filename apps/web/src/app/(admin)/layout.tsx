@@ -7,7 +7,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <aside className="admin-sidebar">
         <div className="admin-brand">
           <div className="admin-brand-title">Admin Console</div>
-          <div className="admin-brand-sub">stockMonitoring 운영</div>
         </div>
         <AdminNav />
         <div className="admin-sidebar-footer">

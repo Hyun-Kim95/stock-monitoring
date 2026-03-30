@@ -16,7 +16,7 @@ import {
 import { countActiveStocks, getMaxActiveStocks } from "../lib/stock-limits.js";
 import {
   maybeBackfillKisChartHistory,
-  maybeBackfillKisMinuteToday,
+  startOrJoinKisMinuteBackfillToday,
 } from "../modules/history/kis-chart-backfill.js";
 import type { ChartGranularity, ChartRange } from "@stock-monitoring/shared";
 import { fetchChart } from "../modules/history/quote-history.js";
@@ -222,14 +222,22 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     const useKis = provRow?.settingValue?.trim().toLowerCase() === "kis";
     if (useKis) {
       if (granularity === "minute") {
-        // 분봉은 클릭 즉시 차트를 보여주고(현재 DB 기준), 당일 분봉 보강은 백그라운드에서 진행.
-        // 그렇지 않으면 KIS 호출/페이지네이션 대기 때문에 최초 응답이 길어져 '캔들 1개' 상태가 오래 보일 수 있다.
+        // 동일 종목·당일 백필은 한 번만 돌리고, 최대 ~12초까지는 응답 전에 기다려 첫 화면에 장 시작 구간이 더 잘 잡히게 한다.
+        // 이후에도 폴링 중인 백필은 공유 Promise로 이어진다.
         minuteBackfillInProgressByCode.set(stock.code, true);
-        void maybeBackfillKisMinuteToday(prisma, env, stock.code).catch((e) => {
+        const p = startOrJoinKisMinuteBackfillToday(prisma, env, stock.code);
+        void p.catch((e) => {
           logError("maybeBackfillKisMinuteToday failed", { stockCode: stock.code, err: String(e) });
-        }).finally(() => {
+        });
+        void p.finally(() => {
           minuteBackfillInProgressByCode.set(stock.code, false);
         });
+        await Promise.race([
+          p,
+          new Promise<void>((resolve) => {
+            setTimeout(resolve, 12_000);
+          }),
+        ]);
       } else {
         await maybeBackfillKisChartHistory(prisma, env, stock.code);
       }

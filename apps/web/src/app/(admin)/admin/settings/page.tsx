@@ -58,7 +58,6 @@ export default function AdminSettingsPage() {
 
   return (
     <div>
-      <h1 style={{ marginTop: 0 }}>시스템 설정</h1>
       {err ? <p style={{ color: "var(--down)" }}>{err}</p> : null}
 
       <form className="panel" onSubmit={save} style={{ padding: 12, marginBottom: 16 }}>

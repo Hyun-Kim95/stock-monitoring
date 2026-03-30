@@ -128,7 +128,6 @@ export default function AdminNewsRulesPage() {
 
   return (
     <div>
-      <h1 style={{ marginTop: 0 }}>뉴스 검색 규칙</h1>
       {err ? <p style={{ color: "var(--down)" }}>{err}</p> : null}
 
       <form className="panel" onSubmit={createRule} style={{ padding: 12, marginBottom: 16 }}>

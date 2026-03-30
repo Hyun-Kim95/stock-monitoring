@@ -24,11 +24,33 @@ const MAX_ROWS_PER_BATCH = 1200;
 const lastBackfillAt = new Map<string, number>();
 /** 이 시각(ms) 이전에는 당일 분봉 백필을 다시 시도하지 않음 (성공·스킵·빈응답 시에만 갱신) */
 const minuteBackfillNotBefore = new Map<string, number>();
+/** 동일 종목·당일에 분봉 백필이 여러 차트 폴링에서 중복 실행되지 않도록 공유 */
+const minuteTodayBackfillInFlight = new Map<string, Promise<void>>();
 
 /** 기동 시 일봉·분봉 쿨다운 초기화(삭제 후 재백필과 맞춤) */
 export function resetQuoteHistoryCaches(): void {
   lastBackfillAt.clear();
   minuteBackfillNotBefore.clear();
+  minuteTodayBackfillInFlight.clear();
+}
+
+/**
+ * 차트 API 등에서 호출: 이미 진행 중인 당일 분봉 백필이 있으면 그 Promise를 재사용한다.
+ */
+export function startOrJoinKisMinuteBackfillToday(
+  prisma: PrismaClient,
+  env: Env,
+  stockCode: string,
+): Promise<void> {
+  const k = `${stockCode}:${formatKstDateOnly(new Date())}`;
+  let p = minuteTodayBackfillInFlight.get(k);
+  if (!p) {
+    p = maybeBackfillKisMinuteToday(prisma, env, stockCode).finally(() => {
+      minuteTodayBackfillInFlight.delete(k);
+    });
+    minuteTodayBackfillInFlight.set(k, p);
+  }
+  return p;
 }
 let backfillTokenCache: { baseUrl: string; token: string; expiresAt: number } | null = null;
 let backfillTokenRetryNotBefore = 0;
@@ -166,8 +188,6 @@ export async function maybeBackfillKisChartHistory(
   }
   if (distinctDays >= TARGET_DISTINCT_DAYS) return;
 
-  lastBackfillAt.set(stockCode, now);
-
   const baseUrl = (env.KIS_REST_BASE_URL?.trim() || "https://openapivts.koreainvestment.com:29443").replace(
     /\/$/,
     "",
@@ -264,12 +284,17 @@ export async function maybeBackfillKisChartHistory(
     );
   }
 
-  if (inserts.length === 0) return;
+  if (inserts.length === 0) {
+    /* KIS 조회 실패·빈 응답 등으로 넣을 행이 없으면 쿨다운을 걸지 않음. 예전에는 여기서도 8분 쿨다운이
+     * 이미 걸려 있어, 이후 차트 요청이 백필을 건너뛰고 폴링으로 쌓인 소량(수 일) 일봉만 보이는 현상이 났음. */
+    return;
+  }
 
   try {
     await prisma.stockQuoteHistory.createMany({ data: inserts });
+    lastBackfillAt.set(stockCode, Date.now());
   } catch {
-    /* DB 없음 등 */
+    /* DB 없음 등 — 삽입 실패 시 다음 차트 요청에서 다시 백필 시도할 수 있게 쿨다운을 두지 않음 */
   }
 }
 
@@ -509,11 +534,13 @@ function kstHourMinute(d: Date): { hour: number; minute: number } {
 
 /**
  * 일봉 백필이 쓰는 08:00~08:03 KST 구간을 제외한 뒤, 당일 08:00(KST) 이후 첫 행.
- * 그 시각이 08:00 정각이 아니라 08:01 이후이면 앞 구간이 비어 있어 당일 구간을 갈아엎고 백필한다.
+ * 프리마켓·분봉은 08:xx에도 정상적으로 쌓일 수 있으므로, "장 시작 직후 큰 공백"으로 볼 만한
+ * 시각(정규장 09:00 KST 이후)부터만 당일 08:00~ 구간을 갈아엎는다.
+ * (08:01만으로 치환하면 재기동·정상 프리마켓 데이터까지 과삭제하기 쉬움)
  */
 function shouldReplaceTodayByFirstBar(firstBar: Date): boolean {
   const { hour, minute } = kstHourMinute(firstBar);
-  return hour * 60 + minute >= 8 * 60 + 1;
+  return hour * 60 + minute >= 9 * 60;
 }
 
 async function firstMeaningfulMinuteToday(
@@ -537,6 +564,30 @@ async function firstMeaningfulMinuteToday(
   return rows[0]?.m ?? null;
 }
 
+/**
+ * 당일 KST 09:00~14:30 구간에 실제로 몇 분의 틱이 있는지(장중 코어).
+ * 일봉 백필이 넣은 08:00~08:03만 있고 오후 폴링만 이어지는 경우, 전체 distinct 분 수만으로는
+ * "이미 하루 분봉이 다 찼다"고 오판해 KIS 보강을 건너뛰는 문제를 막는다.
+ */
+async function distinctCoreSessionMinutesToday(
+  prisma: PrismaClient,
+  stockCode: string,
+  dayStart: Date,
+  dayEnd: Date,
+): Promise<number> {
+  const rows = await prisma.$queryRaw<{ n: bigint }[]>`
+    SELECT COUNT(DISTINCT DATE_TRUNC('minute', "recorded_at" AT TIME ZONE 'Asia/Seoul'))::bigint AS n
+    FROM "stock_quote_history"
+    WHERE "stock_code" = ${stockCode}
+      AND "recorded_at" >= ${dayStart}
+      AND "recorded_at" < ${dayEnd}
+      AND "price" > 0
+      AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time >= TIME '09:00:00')
+      AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time <= TIME '14:30:00')
+  `;
+  return Number(rows[0]?.n ?? 0);
+}
+
 /** 분봉에서 오늘 장중 데이터가 비는 경우, KIS 당일분봉(30건/page)을 역순으로 수집해 보강 */
 export async function maybeBackfillKisMinuteToday(
   prisma: PrismaClient,
@@ -556,6 +607,7 @@ export async function maybeBackfillKisMinuteToday(
   const kstDate = formatKstDateOnly(new Date());
   const dayStart = new Date(`${kstDate}T00:00:00+09:00`);
   const kstOpenGrace = new Date(`${kstDate}T08:15:00+09:00`);
+  const dayEnd = new Date(dayStart.getTime() + 86_400_000);
 
   if (!force) {
     const todayBounds = await prisma.$queryRaw<{ min_t: Date | null; distinct_minutes: bigint }[]>`
@@ -570,8 +622,16 @@ export async function maybeBackfillKisMinuteToday(
     const b = todayBounds[0];
     const minT = b?.min_t ?? null;
     const distinctMinutes = Number(b?.distinct_minutes ?? 0);
-    if (minT != null && minT.getTime() <= kstOpenGrace.getTime() && distinctMinutes >= 240) {
-      minuteBackfillNotBefore.set(stockCode, now + 2 * 60_000);
+    const coreMinutes = await distinctCoreSessionMinutesToday(prisma, stockCode, dayStart, dayEnd);
+    /** 09:00~14:30 구간에 충분한 분이 있어야 "당일 분봉이 이미 갖춰졌다"고 본다 */
+    const coreLooksFull = coreMinutes >= 120;
+    if (
+      minT != null &&
+      minT.getTime() <= kstOpenGrace.getTime() &&
+      distinctMinutes >= 240 &&
+      coreLooksFull
+    ) {
+      minuteBackfillNotBefore.set(stockCode, 45_000);
       return;
     }
   }
@@ -589,8 +649,8 @@ export async function maybeBackfillKisMinuteToday(
   }
   const gap = Math.min(700, Math.max(200, env.KIS_QUOTE_REQUEST_GAP_MS ?? 400));
 
+  let todayClearedFrom8 = false;
   if (force && (!startupFromHhmmss || !/^\d{6}$/.test(startupFromHhmmss))) {
-    const dayEnd = new Date(dayStart.getTime() + 86_400_000);
     try {
       const firstBar = await firstMeaningfulMinuteToday(prisma, stockCode, dayStart, dayEnd);
       if (firstBar && shouldReplaceTodayByFirstBar(firstBar)) {
@@ -600,15 +660,23 @@ export async function maybeBackfillKisMinuteToday(
           WHERE "stock_code" = ${stockCode}
             AND "recorded_at" >= ${cutoff}
         `;
+        todayClearedFrom8 = true;
       }
     } catch {
       /* DB 오류 시 삭제 생략 후 백필만 시도 */
     }
   }
 
-  /** J 시장 프리·정규 구간: KST 08:00~15:30. 재기동 보강 시엔 직전 종료 시각 이후만 조회 */
-  const startupFrom = startupFromHhmmss && /^\d{6}$/.test(startupFromHhmmss) ? startupFromHhmmss : null;
-  const jMin = startupFrom && startupFrom > "080000" ? startupFrom : "080000";
+  /**
+   * J 시장 프리·정규 구간: KST 08:00~15:30.
+   * 당일 08:00(KST) 이후를 갈아엎은 뒤에는 반드시 08:00부터 다시 채운다.
+   * 같은 날 재기동이고 직전 종료 시각(`startupFromHhmmss`)이 있으면, 삭제를 하지 않은 경우에만
+   * 그 시각 이후만 보강해 KIS·폴링 분봉을 이중 삽입하지 않는다.
+   */
+  const resumeFrom =
+    force && startupFromHhmmss && /^\d{6}$/.test(startupFromHhmmss) ? startupFromHhmmss : null;
+  const jMin =
+    resumeFrom && resumeFrom > "080000" && !todayClearedFrom8 ? resumeFrom : "080000";
   const jMax = "153059";
   const cursorJ = pickInitialCursor(jMin, jMax);
   let inserted = await backfillKisMinuteTodaySegment(
@@ -626,7 +694,8 @@ export async function maybeBackfillKisMinuteToday(
 
   if (force) {
     const nxMinBase = "153100";
-    const nxMin = startupFrom && startupFrom > nxMinBase ? startupFrom : nxMinBase;
+    const nxMin =
+      resumeFrom && resumeFrom > nxMinBase && !todayClearedFrom8 ? resumeFrom : nxMinBase;
     const nxMax = "203059";
     const cursorNx = pickInitialCursor(nxMin, nxMax);
     inserted += await backfillKisMinuteTodaySegment(
@@ -644,10 +713,10 @@ export async function maybeBackfillKisMinuteToday(
   }
 
   if (inserted === 0) {
-    minuteBackfillNotBefore.set(stockCode, now + 60_000);
+    minuteBackfillNotBefore.set(stockCode, now + 30_000);
     return;
   }
-  minuteBackfillNotBefore.set(stockCode, Date.now() + 2 * 60_000);
+  minuteBackfillNotBefore.set(stockCode, Date.now() + 45_000);
 }
 
 /** 서버 기동 시 활성 종목별 당일 분봉 강제 백필 (폴링 시작 전) */

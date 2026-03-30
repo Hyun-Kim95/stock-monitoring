@@ -420,12 +420,15 @@ export function PriceChartPanel({
     return mergeLiveIntoAggregatedLastBar(lwBase, liveQuote, stockCode, granularity);
   }, [lwBase, granularity, stockCode, liveQuote]);
 
+  /** 봉 개수가 늘 때마다 차트를 재생성하면 fitContent()로 확대/스크롤 상태가 풀리므로, 데이터 유무(0↔1+)만 본다 */
+  const hasChartData = lwData.length > 0;
+
   /** 종목·봉·범위·서버 캔들 개수가 바뀔 때만 차트 인스턴스를 새로 만듦 (실시간 시세는 아래 effect에서 setData) */
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    if (lwData.length === 0) {
+    if (!hasChartData) {
       chartRef.current?.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -472,6 +475,8 @@ export function PriceChartPanel({
           borderColor: "rgba(128,128,128,0.25)",
           timeVisible: isMinute,
           secondsVisible: false,
+          /** 새 봉이 붙을 때 보이는 구간이 자동으로 밀리며 확대가 풀리는 것 방지 */
+          shiftVisibleRangeOnNewBar: false,
           tickMarkFormatter: (time: Time, tickMarkType: number, _locale: string) =>
             formatTickMarkLabel(time, tickMarkType, granularity, mod.TickMarkType),
         },
@@ -534,11 +539,24 @@ export function PriceChartPanel({
       seriesRef.current = null;
       setHoverBar(null);
     };
-  }, [stockId, granularity, barLimit, lwBase.length]);
+  }, [stockId, granularity, barLimit, hasChartData]);
 
   useEffect(() => {
-    if (lwData.length === 0 || !seriesRef.current) return;
-    seriesRef.current.setData(lwData);
+    const chart = chartRef.current;
+    const series = seriesRef.current;
+    if (lwData.length === 0 || !chart || !series) return;
+    const ts = chart.timeScale();
+    const vis = ts.getVisibleRange();
+    series.setData(lwData);
+    if (vis) {
+      requestAnimationFrame(() => {
+        try {
+          chart.timeScale().setVisibleRange(vis);
+        } catch {
+          /* 새 데이터에 from/to가 없으면 라이브러리가 조정함 */
+        }
+      });
+    }
   }, [lwData]);
 
   return (

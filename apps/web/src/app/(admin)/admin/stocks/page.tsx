@@ -151,7 +151,6 @@ export default function AdminStocksPage() {
 
   return (
     <div>
-      <h1 style={{ marginTop: 0 }}>종목 관리</h1>
       {err ? <p style={{ color: "var(--down)" }}>{err}</p> : null}
 
       <div className="admin-grid">
