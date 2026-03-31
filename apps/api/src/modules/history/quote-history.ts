@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
 import {
   CHART_RANGE_MATRIX,
@@ -76,14 +76,23 @@ export type ChartBundle = {
   meta: ChartMeta;
 };
 
+export type MinuteSession = "all" | "j" | "nx";
+
 export async function fetchChart(
   prisma: PrismaClient,
   stockCode: string,
   granularity: ChartGranularity,
   range: ChartRange,
-  opts?: { limitOverride?: number },
+  opts?: { limitOverride?: number; minuteSession?: MinuteSession },
 ): Promise<ChartBundle> {
   const { from, cap } = windowParams(granularity, range, opts?.limitOverride);
+  const minuteSession = opts?.minuteSession ?? "all";
+  const minuteSessionSql =
+    minuteSession === "j"
+      ? Prisma.sql`AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time >= TIME '08:00:00') AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time <= TIME '15:30:00')`
+      : minuteSession === "nx"
+        ? Prisma.sql`AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time >= TIME '15:31:00') AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time <= TIME '20:30:00')`
+        : Prisma.sql`AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time >= TIME '08:00:00') AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time <= TIME '20:30:00')`;
 
   const boundsPromise =
     granularity === "minute"
@@ -94,6 +103,7 @@ export async function fetchChart(
             AND "recorded_at" >= ${from}
             AND date_trunc('minute', ("recorded_at" AT TIME ZONE 'Asia/Seoul'))
               <= date_trunc('minute', (NOW() AT TIME ZONE 'Asia/Seoul'))
+            ${minuteSessionSql}
         `
       : prisma.$queryRaw<{ min_t: Date | null; max_t: Date | null }[]>`
           SELECT MIN("recorded_at") AS min_t, MAX("recorded_at") AS max_t
@@ -121,8 +131,7 @@ export async function fetchChart(
                   AND date_trunc('minute', ("recorded_at" AT TIME ZONE 'Asia/Seoul'))
                     <= date_trunc('minute', (NOW() AT TIME ZONE 'Asia/Seoul'))
                   AND EXTRACT(ISODOW FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) BETWEEN 1 AND 5
-                  AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time >= TIME '08:00:00')
-                  AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time <= TIME '20:30:00')
+                  ${minuteSessionSql}
                   AND NOT (
                     "volume" IS NULL
                     AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time IN (

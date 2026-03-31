@@ -650,7 +650,7 @@ export async function maybeBackfillKisMinuteToday(
   const gap = Math.min(700, Math.max(200, env.KIS_QUOTE_REQUEST_GAP_MS ?? 400));
 
   let todayClearedFrom8 = false;
-  if (force && (!startupFromHhmmss || !/^\d{6}$/.test(startupFromHhmmss))) {
+  if (force) {
     try {
       const firstBar = await firstMeaningfulMinuteToday(prisma, stockCode, dayStart, dayEnd);
       if (firstBar && shouldReplaceTodayByFirstBar(firstBar)) {

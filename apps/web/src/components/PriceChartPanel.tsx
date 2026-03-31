@@ -318,6 +318,18 @@ function formatTickMarkLabel(
   return null;
 }
 
+function showRecentBarsByDefault(chart: IChartApi, dataLen: number, recentBars = 500): void {
+  const ts = chart.timeScale();
+  if (dataLen <= 0) return;
+  if (dataLen <= recentBars) {
+    ts.fitContent();
+    return;
+  }
+  const to = dataLen - 1;
+  const from = Math.max(0, to - (recentBars - 1));
+  ts.setVisibleLogicalRange({ from, to });
+}
+
 export function PriceChartPanel({
   stockId,
   stockName,
@@ -344,6 +356,7 @@ export function PriceChartPanel({
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showAllThemes, setShowAllThemes] = useState(false);
+  const [showMinuteBackfillBadge, setShowMinuteBackfillBadge] = useState(false);
   /** 크로스헤어가 가리키는 봉(OHLC) — 우측 가격 눈금만 보면 헷갈려서 별도 표시 */
   const [hoverBar, setHoverBar] = useState<{
     timeLabel: string;
@@ -355,9 +368,17 @@ export function PriceChartPanel({
 
   /** 늦게 도착한 차트 응답이 봉 단위·범위·종목을 덮어쓰지 않도록 */
   const fetchSeqRef = useRef(0);
+  /** 분봉 soft polling 중복 요청 방지 */
+  const minuteSoftInFlightRef = useRef(false);
+  /** 사용자가 직접 줌/스크롤한 뒤에만 가시 범위를 고정 유지 */
+  const userAdjustedRangeRef = useRef(false);
+  /** 이전 데이터 길이(초기 소량 캔들 상태 판별용) */
+  const prevDataLenRef = useRef(0);
 
   const load = useCallback(async (opts?: { soft?: boolean }) => {
     const soft = opts?.soft === true;
+    if (soft && minuteSoftInFlightRef.current) return;
+    if (soft) minuteSoftInFlightRef.current = true;
     const seq = ++fetchSeqRef.current;
     if (!soft) {
       setLoading(true);
@@ -365,6 +386,7 @@ export function PriceChartPanel({
       setCandles([]);
       setMeta(null);
       setHoverBar(null);
+      if (granularity === "minute") setShowMinuteBackfillBadge(false);
     }
     try {
       const res = await apiGet<ChartApi>(
@@ -374,6 +396,12 @@ export function PriceChartPanel({
       if (res.stockId !== stockId || res.granularity !== granularity) return;
       setCandles(res.candles);
       setMeta(res.meta);
+      if (granularity === "minute") {
+        const missingHistory = res.candles.length < Math.min(500, barLimit);
+        setShowMinuteBackfillBadge(Boolean(res.meta.minuteBackfillInProgress && missingHistory));
+      } else {
+        setShowMinuteBackfillBadge(false);
+      }
       if (!soft) setErr(null);
     } catch (e) {
       if (!soft) {
@@ -387,6 +415,7 @@ export function PriceChartPanel({
         }
       }
     } finally {
+      if (soft) minuteSoftInFlightRef.current = false;
       if (!soft && seq === fetchSeqRef.current) setLoading(false);
     }
   }, [stockId, granularity, barLimit]);
@@ -404,7 +433,7 @@ export function PriceChartPanel({
     const id = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void load({ soft: true });
-    }, 1_000);
+    }, 3_000);
     return () => window.clearInterval(id);
   }, [granularity, load]);
 
@@ -432,6 +461,8 @@ export function PriceChartPanel({
       chartRef.current?.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      userAdjustedRangeRef.current = false;
+      prevDataLenRef.current = 0;
       setHoverBar(null);
       return;
     }
@@ -439,6 +470,7 @@ export function PriceChartPanel({
     let cancelled = false;
     let ro: ResizeObserver | null = null;
     let unsubCrosshair: (() => void) | null = null;
+    let removeUserAdjustListeners: (() => void) | null = null;
 
     void import("lightweight-charts").then((mod) => {
       if (cancelled || !containerRef.current) return;
@@ -477,6 +509,8 @@ export function PriceChartPanel({
           secondsVisible: false,
           /** 새 봉이 붙을 때 보이는 구간이 자동으로 밀리며 확대가 풀리는 것 방지 */
           shiftVisibleRangeOnNewBar: false,
+          /** 과도한 확대로 한두 개 봉만 보이는 상태를 방지 (대략 한 화면 최소 40봉) */
+          maxBarSpacing: 20,
           tickMarkFormatter: (time: Time, tickMarkType: number, _locale: string) =>
             formatTickMarkLabel(time, tickMarkType, granularity, mod.TickMarkType),
         },
@@ -497,9 +531,21 @@ export function PriceChartPanel({
         priceFormat: { type: "price", precision: 0, minMove: 1 },
       }) as ISeriesApi<"Candlestick">;
       series.setData(lwData);
-      chart.timeScale().fitContent();
+      showRecentBarsByDefault(chart, lwData.length, 500);
       chartRef.current = chart;
       seriesRef.current = series;
+      userAdjustedRangeRef.current = false;
+      prevDataLenRef.current = lwData.length;
+
+      const markUserAdjusted = () => {
+        userAdjustedRangeRef.current = true;
+      };
+      containerRef.current?.addEventListener("wheel", markUserAdjusted, { passive: true });
+      containerRef.current?.addEventListener("touchstart", markUserAdjusted, { passive: true });
+      removeUserAdjustListeners = () => {
+        containerRef.current?.removeEventListener("wheel", markUserAdjusted);
+        containerRef.current?.removeEventListener("touchstart", markUserAdjusted);
+      };
 
       const onCrosshairMove = (param: MouseEventParams) => {
         if (param.point === undefined || param.time === undefined) {
@@ -534,9 +580,12 @@ export function PriceChartPanel({
       cancelled = true;
       unsubCrosshair?.();
       ro?.disconnect();
+      removeUserAdjustListeners?.();
       chartRef.current?.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      userAdjustedRangeRef.current = false;
+      prevDataLenRef.current = 0;
       setHoverBar(null);
     };
   }, [stockId, granularity, barLimit, hasChartData]);
@@ -545,6 +594,16 @@ export function PriceChartPanel({
     const chart = chartRef.current;
     const series = seriesRef.current;
     if (lwData.length === 0 || !chart || !series) return;
+    const prevLen = prevDataLenRef.current;
+    prevDataLenRef.current = lwData.length;
+    const grewFromTinyToMany = prevLen <= 5 && lwData.length - prevLen >= 50;
+    const shouldAutoFitEarly =
+      (!userAdjustedRangeRef.current && prevLen <= 2 && lwData.length > prevLen) || grewFromTinyToMany;
+    if (shouldAutoFitEarly) {
+      series.setData(lwData);
+      showRecentBarsByDefault(chart, lwData.length, 500);
+      return;
+    }
     const ts = chart.timeScale();
     const vis = ts.getVisibleRange();
     series.setData(lwData);
@@ -620,7 +679,7 @@ export function PriceChartPanel({
             }}
             style={{ width: 110 }}
           />
-          {granularity === "minute" && meta?.minuteBackfillInProgress ? (
+          {granularity === "minute" && showMinuteBackfillBadge ? (
             <span className="badge">분봉 보강 중…</span>
           ) : null}
         </div>
@@ -670,10 +729,22 @@ export function PriceChartPanel({
         </div>
       ) : null}
       {err ? <div style={{ color: "var(--down)", fontSize: 12 }}>{err}</div> : null}
-      {loading && lwData.length === 0 ? (
-        <div style={{ color: "var(--muted-foreground)", fontSize: 12 }}>불러오는 중…</div>
+      {loading && !err ? (
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            color: "var(--muted-foreground)",
+            fontSize: 12,
+            padding: "2px 0 8px",
+          }}
+        >
+          <span className="loading-dot" aria-hidden />
+          <span>차트 데이터를 불러오는 중…</span>
+        </div>
       ) : null}
-      {!loading && !err && lwData.length === 0 ? (
+      {!loading && !err && granularity !== "minute" && lwData.length === 0 ? (
         <div style={{ color: "var(--muted-foreground)", fontSize: 12 }}>
           저장된 시세가 없습니다. API가 켜진 채로 잠시 두면 캔들이 채워집니다.
         </div>
