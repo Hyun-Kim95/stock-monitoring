@@ -1,15 +1,20 @@
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
 import { normalizeKrxStockCode } from "@stock-monitoring/shared";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { MarketDataProvider } from "../types.js";
 import {
   fetchKisAccessToken,
   fetchKisInquirePrice,
+  fetchKisInvestorTrend,
   parseKisNumber,
   parseKisSignedFluctuation,
 } from "./kis-rest.js";
 
 type SessionState = "OPEN" | "CLOSED" | "PRE" | "AFTER";
 type SessionSlot = "OFF" | "PRE" | "REGULAR" | "NXT" | "AFTER";
+const KIS_TOKEN_CACHE_FILE = path.join(os.homedir(), ".stock-monitoring", "kis-token-cache.json");
 
 function kstSessionSlotNow(): SessionSlot {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -38,6 +43,25 @@ function kstSessionSlotNow(): SessionSlot {
 type TokenState = { token: string; expiresAt: number };
 let tokenRetryNotBefore = 0;
 
+async function readTokenCache(): Promise<TokenState | null> {
+  try {
+    const raw = await fs.readFile(KIS_TOKEN_CACHE_FILE, "utf8");
+    const json = JSON.parse(raw) as Partial<TokenState>;
+    const token = typeof json.token === "string" ? json.token.trim() : "";
+    const expiresAt = Number(json.expiresAt);
+    if (!token || !Number.isFinite(expiresAt)) return null;
+    return { token, expiresAt };
+  } catch {
+    return null;
+  }
+}
+
+async function writeTokenCache(state: TokenState): Promise<void> {
+  const dir = path.dirname(KIS_TOKEN_CACHE_FILE);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(KIS_TOKEN_CACHE_FILE, JSON.stringify(state), "utf8");
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -50,6 +74,42 @@ function parsePositive(out: Record<string, string | undefined>, ...keys: string[
   return NaN;
 }
 
+function kstYmdNow(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" })
+    .format(new Date())
+    .replace(/-/g, "");
+}
+
+function pickForeignNetByDate(
+  rows: Array<Record<string, string | undefined>>,
+  targetYmd: string,
+): number | null {
+  const parse = (r: Record<string, string | undefined>) => {
+    const n = parseKisNumber(r.frgn_ntby_qty ?? r.FRGN_NTBY_QTY);
+    return Number.isFinite(n) ? Math.trunc(n) : null;
+  };
+  const todayRow = rows.find((r) => String(r.stck_bsop_date ?? r.STCK_BSOP_DATE ?? "").trim() === targetYmd);
+  if (todayRow) {
+    const v = parse(todayRow);
+    if (v != null) return v;
+  }
+  for (const r of rows) {
+    const v = parse(r);
+    if (v != null) return v;
+  }
+  return null;
+}
+
+function pickForeignNetTodayOnly(
+  rows: Array<Record<string, string | undefined>>,
+  targetYmd: string,
+): number | null {
+  const todayRow = rows.find((r) => String(r.stck_bsop_date ?? r.STCK_BSOP_DATE ?? "").trim() === targetYmd);
+  if (!todayRow) return null;
+  const n = parseKisNumber(todayRow.frgn_ntby_qty ?? todayRow.FRGN_NTBY_QTY);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
 export type KisPollingOptions = {
   baseUrl: string;
   appKey: string;
@@ -59,6 +119,8 @@ export type KisPollingOptions = {
   pollIntervalMs: number;
   /** 종목별 inquire-price 사이 대기(ms). KIS 초당 거래건수 제한 대응 */
   quoteRequestGapMs: number;
+  /** 투자자 수급 재조회 주기(ms). 0 이하이면 비활성 */
+  investorRefreshMs?: number;
 };
 
 /**
@@ -76,9 +138,65 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
   let statusMessage = "KIS 초기화";
   let tickInFlight = false;
   const nxEligibleByCode = new Map<string, boolean>();
+  const investorNetByCode = new Map<string, { value: number | null; fetchedAt: number; inFlight?: Promise<void> }>();
+  let tokenCacheHydrated = false;
+
+  async function refreshInvestorNetIfNeeded(token: string, code: string): Promise<void> {
+    const refreshMs = opts.investorRefreshMs ?? 60_000;
+    if (refreshMs <= 0) return;
+    const now = Date.now();
+    const state = investorNetByCode.get(code);
+    if (state?.inFlight) return;
+    if (state && now - state.fetchedAt < refreshMs) return;
+    const inFlight = (async () => {
+      try {
+        const todayYmd = kstYmdNow();
+        const rowsJ = await fetchKisInvestorTrend(
+          opts.baseUrl,
+          token,
+          opts.appKey,
+          opts.appSecret,
+          normalizeKrxStockCode(code),
+          "J",
+        );
+        const vJ = pickForeignNetByDate(rowsJ, todayYmd);
+        let vNx: number | null = null;
+        try {
+          const rowsNx = await fetchKisInvestorTrend(
+            opts.baseUrl,
+            token,
+            opts.appKey,
+            opts.appSecret,
+            normalizeKrxStockCode(code),
+            "NX",
+          );
+          // NX는 오늘 행이 없을 때 과거 데이터(며칠~수주 전)가 내려오는 케이스가 있어,
+          // today 행이 확인될 때만 합산한다.
+          vNx = pickForeignNetTodayOnly(rowsNx, todayYmd);
+        } catch {
+          // NX 미지원/빈응답이면 J만 사용
+        }
+        // 일부 종목/시점에서 J와 NX가 동일 값으로 내려와 단순 합산 시 2배가 될 수 있다.
+        const merged =
+          vJ != null && vNx != null ? (vJ === vNx ? vJ : vJ + vNx) : vJ != null ? vJ : vNx != null ? vNx : null;
+        investorNetByCode.set(code, { value: merged, fetchedAt: Date.now() });
+      } catch {
+        investorNetByCode.set(code, { value: state?.value ?? null, fetchedAt: Date.now() });
+      }
+    })();
+    investorNetByCode.set(code, { value: state?.value ?? null, fetchedAt: state?.fetchedAt ?? 0, inFlight });
+    await inFlight;
+  }
 
   async function ensureToken(): Promise<string> {
     const now = Date.now();
+    if (!tokenCacheHydrated) {
+      tokenCacheHydrated = true;
+      const cached = await readTokenCache();
+      if (cached && cached.expiresAt > now + 60_000) {
+        tokenState = cached;
+      }
+    }
     // 만료 여유 1분 이상 남은 토큰은 그대로 사용
     if (tokenState && tokenState.expiresAt > now + 60_000) {
       return tokenState.token;
@@ -105,6 +223,7 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
     const exp = Date.parse(t.access_token_token_expired.replace(" ", "T"));
     const expiresAt = Number.isNaN(exp) ? now + 23 * 3600_000 : exp;
     tokenState = { token: t.access_token, expiresAt };
+    void writeTokenCache(tokenState).catch(() => undefined);
     return t.access_token;
   }
 
@@ -132,7 +251,9 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
     const change = parseKisSignedFluctuation(out.prdy_vrss ?? out.PRDY_VRSS, prdySign);
     const changeRate = parseKisSignedFluctuation(out.prdy_ctrt ?? out.PRDY_CTRT, prdySign);
     const volume = parseKisNumber(out.acml_vol ?? out.ACML_VOL);
-    const frgnNet = parseKisNumber(out.frgn_ntby_qty ?? out.FRGN_NTBY_QTY);
+    const frgnNetFromPrice = parseKisNumber(out.frgn_ntby_qty ?? out.FRGN_NTBY_QTY);
+    const frgnNetFromInvestor = investorNetByCode.get(code)?.value;
+    const frgnNet = frgnNetFromInvestor ?? (Number.isNaN(frgnNetFromPrice) ? NaN : frgnNetFromPrice);
     const frgnPct = parseKisNumber(out.hts_frgn_ehrt ?? out.HTS_FRGN_EHRT);
     return {
       symbol: code,
@@ -198,6 +319,7 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
           if (!out) {
             out = await request("J");
           }
+          void refreshInvestorNetIfNeeded(token, s.code);
 
           let marketSession: SessionState = "CLOSED";
           if (slot === "PRE") marketSession = "PRE";
@@ -210,6 +332,11 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
           const msg = String(e);
           const rateLimited =
             msg.includes("EGW00201") || msg.includes("초당 거래건수") || msg.includes("거래건수를 초과");
+          const tokenLikelyInvalid =
+            msg.includes("EGW00123") ||
+            msg.includes("EGW00115") ||
+            (msg.includes("토큰") && (msg.includes("만료") || msg.includes("유효")));
+          if (tokenLikelyInvalid) tokenState = null;
           if (rateLimited) hitRateLimit = true;
           const tokenLimited = msg.includes("EGW00133") || msg.includes("접근토큰 발급 잠시 후 다시 시도하세요");
           statusMessage = tokenLimited
@@ -252,6 +379,7 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
       symbols.push(...nextSymbols);
       lastQuotes = [];
       tokenState = null;
+      investorNetByCode.clear();
       void tick();
       timer = setInterval(() => void tick(), Math.max(500, opts.pollIntervalMs));
       connected = true;

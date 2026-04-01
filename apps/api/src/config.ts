@@ -21,6 +21,11 @@ const EnvSchema = z.object({
   KIS_TR_ID_PRICE: z.string().optional(),
   /** inquire-price 종목 간 최소 간격(ms). 비우면 400. KIS 초당 건수 제한(EGW00201) 완화 */
   KIS_QUOTE_REQUEST_GAP_MS: z.coerce.number().int().positive().max(10_000).optional(),
+  /** 투자자 수급 전용 TR 재조회 주기(ms). 기본 10000 */
+  KIS_INVESTOR_REFRESH_MS: z.coerce.number().int().min(0).max(600_000).optional(),
+  /** Redis (선택): 분봉 캐시/락 공유. 미설정 시 인메모리 동작 */
+  REDIS_URL: z.string().optional(),
+  REDIS_KEY_PREFIX: z.string().optional(),
   /**
    * 서버 기동 시 stock_quote_history 정리.
    * none=안 함, today=오늘 KST 0시(당일) 데이터만 삭제, today_8kst=오늘 KST 08:00 미만 전부 삭제(전일·당일 새벽 제거), all=전체 TRUNCATE

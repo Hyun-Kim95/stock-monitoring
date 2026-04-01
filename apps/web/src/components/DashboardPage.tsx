@@ -29,7 +29,7 @@ type NewsItem = {
   url: string;
 };
 
-type SortKey = "name" | "price" | "changeRate" | "volume";
+type SortKey = "name" | "price" | "changeRate" | "volume" | "foreignNetBuyVolume" | "foreignOwnershipPct";
 
 function formatForeignNetVol(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "—";
@@ -176,6 +176,16 @@ export function DashboardPage() {
         const rb = qb?.changeRate ?? -Infinity;
         return ra === rb ? 0 : ra < rb ? -dir : dir;
       }
+      if (sortKey === "foreignNetBuyVolume") {
+        const fa = qa?.foreignNetBuyVolume ?? -Infinity;
+        const fb = qb?.foreignNetBuyVolume ?? -Infinity;
+        return fa === fb ? 0 : fa < fb ? -dir : dir;
+      }
+      if (sortKey === "foreignOwnershipPct") {
+        const pa = qa?.foreignOwnershipPct ?? -Infinity;
+        const pb = qb?.foreignOwnershipPct ?? -Infinity;
+        return pa === pb ? 0 : pa < pb ? -dir : dir;
+      }
       const va = qa?.volume ?? -Infinity;
       const vb = qb?.volume ?? -Infinity;
       return va === vb ? 0 : va < vb ? -dir : dir;
@@ -256,11 +266,21 @@ export function DashboardPage() {
                   <th className="num" style={{ cursor: "pointer" }} onClick={() => toggleSort("volume")}>
                     거래량 {sortKey === "volume" ? (sortDir === "asc" ? "▲" : "▼") : ""}
                   </th>
-                  <th className="num" title="당일 외국인 순매수 수량(주). KIS 현재가 API 기준">
-                    외인순매수
+                  <th
+                    className="num"
+                    style={{ cursor: "pointer" }}
+                    onClick={() => toggleSort("foreignNetBuyVolume")}
+                    title="당일 외국인 순매수 수량(주). 투자자 수급 TR 기준"
+                  >
+                    외인순매수 {sortKey === "foreignNetBuyVolume" ? (sortDir === "asc" ? "▲" : "▼") : ""}
                   </th>
-                  <th className="num" title="외국인 소진율(%)">
-                    외인%
+                  <th
+                    className="num"
+                    style={{ cursor: "pointer" }}
+                    onClick={() => toggleSort("foreignOwnershipPct")}
+                    title="외국인 소진율(%)"
+                  >
+                    외인% {sortKey === "foreignOwnershipPct" ? (sortDir === "asc" ? "▲" : "▼") : ""}
                   </th>
                   <th>세션</th>
                 </tr>

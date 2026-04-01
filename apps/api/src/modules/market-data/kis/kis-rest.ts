@@ -90,6 +90,49 @@ export function parseKisNumber(v: string | undefined): number {
   return n;
 }
 
+export type KisInvestorTrendBody = {
+  rt_cd?: string;
+  msg_cd?: string;
+  msg1?: string;
+  output?: Array<Record<string, string | undefined>>;
+};
+
+/** 투자자별 매매동향(일자별). TR_ID: FHKST01010900 */
+export async function fetchKisInvestorTrend(
+  baseUrl: string,
+  accessToken: string,
+  appKey: string,
+  appSecret: string,
+  stockCode: string,
+  marketDiv: "J" | "NX" = "J",
+): Promise<Array<Record<string, string | undefined>>> {
+  const path = "/uapi/domestic-stock/v1/quotations/inquire-investor";
+  const url = new URL(`${baseUrl.replace(/\/$/, "")}${path}`);
+  url.searchParams.set("FID_COND_MRKT_DIV_CODE", marketDiv);
+  url.searchParams.set("FID_INPUT_ISCD", stockCode);
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      appkey: appKey,
+      appsecret: appSecret,
+      tr_id: "FHKST01010900",
+      custtype: "P",
+      tr_cont: "",
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`KIS investor-trend HTTP ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const json = JSON.parse(text) as KisInvestorTrendBody;
+  if (json.rt_cd && json.rt_cd !== "0") {
+    throw new Error(`KIS investor-trend ${json.msg_cd ?? ""}: ${json.msg1 ?? text.slice(0, 200)}`);
+  }
+  return Array.isArray(json.output) ? json.output : [];
+}
+
 /**
  * 전일대비(원)·등락률(%): 값 문자열에 `+`/`-`가 없으면 `prdy_vrss_sign`으로 부호를 붙입니다.
  * KIS 출력속성: 1 상한, 2 상승, 3 보합, 4 하한, 5 하락.

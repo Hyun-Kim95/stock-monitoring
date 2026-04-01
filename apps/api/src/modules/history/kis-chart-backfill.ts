@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
-import { normalizeKrxStockCode } from "@stock-monitoring/shared";
+import { CHART_RANGE_MATRIX, normalizeKrxStockCode, type ChartGranularity, type ChartRange } from "@stock-monitoring/shared";
 import type { Env } from "../../config.js";
 import {
   fetchKisAccessToken,
@@ -8,6 +8,8 @@ import {
   fetchKisTimeItemChartPrice,
   parseKisNumber,
 } from "../market-data/kis/kis-rest.js";
+import { redisAcquireLock, redisReleaseLock, redisWaitUntilUnlocked } from "../../lib/redis.js";
+import { redisGetJson, redisSetJson } from "../../lib/redis.js";
 
 /** 동일 종목 백필 재시도 최소 간격 (KIS 호출·DB 부하 완화) */
 const COOLDOWN_MS = 8 * 60_000;
@@ -27,6 +29,23 @@ const minuteBackfillNotBefore = new Map<string, number>();
 /** 동일 종목·당일에 분봉 백필이 여러 차트 폴링에서 중복 실행되지 않도록 공유 */
 const minuteTodayBackfillInFlight = new Map<string, Promise<void>>();
 
+type MinuteCoverage = {
+  kstDate: string;
+  firstHhmmss: string | null;
+  lastHhmmss: string | null;
+  distinctMinutes: number;
+  coreMinutes: number;
+  updatedAtMs: number;
+};
+
+type HistoryCoverage = {
+  stockCode: string;
+  firstKstDate: string | null;
+  lastKstDate: string | null;
+  distinctDays: number;
+  updatedAtMs: number;
+};
+
 /** 기동 시 일봉·분봉 쿨다운 초기화(삭제 후 재백필과 맞춤) */
 export function resetQuoteHistoryCaches(): void {
   lastBackfillAt.clear();
@@ -41,11 +60,25 @@ export function startOrJoinKisMinuteBackfillToday(
   prisma: PrismaClient,
   env: Env,
   stockCode: string,
+  opts?: BackfillKisMinuteTodayOpts,
 ): Promise<void> {
   const k = `${stockCode}:${formatKstDateOnly(new Date())}`;
   let p = minuteTodayBackfillInFlight.get(k);
   if (!p) {
-    p = maybeBackfillKisMinuteToday(prisma, env, stockCode).finally(() => {
+    p = (async () => {
+      const lockKey = `lock:minute-backfill:${k}`;
+      const acquired = await redisAcquireLock(lockKey, 120_000);
+      if (!acquired) {
+        // 다른 인스턴스가 같은 종목 백필 중이면 짧게 대기 후 합류 효과를 낸다.
+        await redisWaitUntilUnlocked(lockKey, 25_000, 350);
+        return;
+      }
+      try {
+        await maybeBackfillKisMinuteToday(prisma, env, stockCode, opts);
+      } finally {
+        await redisReleaseLock(lockKey);
+      }
+    })().finally(() => {
       minuteTodayBackfillInFlight.delete(k);
     });
     minuteTodayBackfillInFlight.set(k, p);
@@ -151,6 +184,49 @@ async function distinctKstDayCount(prisma: PrismaClient, stockCode: string): Pro
     WHERE "stock_code" = ${stockCode}
   `;
   return Number(rows[0]?.n ?? 0);
+}
+
+async function loadHistoryCoverage(prisma: PrismaClient, stockCode: string): Promise<HistoryCoverage> {
+  const key = `history-coverage:${stockCode}`;
+  const cached = await redisGetJson<HistoryCoverage>(key);
+  if (cached?.stockCode === stockCode) return cached;
+  const rows = await prisma.$queryRaw<{ min_ymd: string | null; max_ymd: string | null; n: bigint }[]>`
+    SELECT
+      TO_CHAR(DATE(MIN("recorded_at") AT TIME ZONE 'Asia/Seoul'), 'YYYY-MM-DD') AS min_ymd,
+      TO_CHAR(DATE(MAX("recorded_at") AT TIME ZONE 'Asia/Seoul'), 'YYYY-MM-DD') AS max_ymd,
+      COUNT(DISTINCT (DATE("recorded_at" AT TIME ZONE 'Asia/Seoul')))::bigint AS n
+    FROM "stock_quote_history"
+    WHERE "stock_code" = ${stockCode}
+  `;
+  const cov: HistoryCoverage = {
+    stockCode,
+    firstKstDate: rows[0]?.min_ymd ?? null,
+    lastKstDate: rows[0]?.max_ymd ?? null,
+    distinctDays: Number(rows[0]?.n ?? 0),
+    updatedAtMs: Date.now(),
+  };
+  await redisSetJson(key, cov, 30_000);
+  return cov;
+}
+
+export async function isHistoryCoverageFreshEnough(
+  prisma: PrismaClient,
+  stockCode: string,
+  granularity: Exclude<ChartGranularity, "minute">,
+  range: ChartRange,
+): Promise<boolean> {
+  const cov = await loadHistoryCoverage(prisma, stockCode);
+  if (!cov.firstKstDate || !cov.lastKstDate) return false;
+  if (cov.distinctDays <= 0) return false;
+  const lookbackMs = CHART_RANGE_MATRIX[granularity][range].lookbackMs;
+  const desiredFrom = new Date(Date.now() - lookbackMs);
+  desiredFrom.setHours(0, 0, 0, 0);
+  const first = new Date(`${cov.firstKstDate}T00:00:00+09:00`);
+  const last = new Date(`${cov.lastKstDate}T00:00:00+09:00`);
+  if (Number.isNaN(first.getTime()) || Number.isNaN(last.getTime())) return false;
+  const hasRecentTail = Date.now() - last.getTime() <= 3 * 24 * 3600_000;
+  const hasOldEnoughHead = first.getTime() <= desiredFrom.getTime();
+  return hasOldEnoughHead && hasRecentTail;
 }
 
 async function minKstYmdInDb(prisma: PrismaClient, stockCode: string): Promise<string | null> {
@@ -303,6 +379,10 @@ function formatKstDateOnly(d: Date): string {
   return s.slice(0, 10);
 }
 
+function minuteCoverageRedisKey(stockCode: string, kstDate: string): string {
+  return `minute-coverage:${stockCode}:${kstDate}`;
+}
+
 /** KST 기준 `now`가 속한 분의 시작 시각 — 분봉 차트·백필에서 ‘아직 도래하지 않은 분’ 제외에 사용 */
 function kstMinuteStartFloor(now = new Date()): Date {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -395,6 +475,59 @@ function kstHhmmssFromDate(d: Date): string {
 function hhmmssToSec(h: string): number {
   if (!/^\d{6}$/.test(h)) return NaN;
   return Number(h.slice(0, 2)) * 3600 + Number(h.slice(2, 4)) * 60 + Number(h.slice(4, 6));
+}
+
+function kstHhmmssOfMinute(d: Date): string {
+  const p = kstHhmmssFromDate(d);
+  return `${p.slice(0, 4)}00`;
+}
+
+async function loadMinuteCoverageToday(prisma: PrismaClient, stockCode: string): Promise<MinuteCoverage> {
+  const kstDate = formatKstDateOnly(new Date());
+  const key = minuteCoverageRedisKey(stockCode, kstDate);
+  const cached = await redisGetJson<MinuteCoverage>(key);
+  if (cached && cached.kstDate === kstDate) return cached;
+
+  const dayStart = new Date(`${kstDate}T00:00:00+09:00`);
+  const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+  const rows = await prisma.$queryRaw<{ min_t: Date | null; max_t: Date | null; distinct_minutes: bigint }[]>`
+    SELECT
+      MIN("recorded_at") AS min_t,
+      MAX("recorded_at") AS max_t,
+      COUNT(DISTINCT DATE_TRUNC('minute', "recorded_at" AT TIME ZONE 'Asia/Seoul'))::bigint AS distinct_minutes
+    FROM "stock_quote_history"
+    WHERE "stock_code" = ${stockCode}
+      AND "recorded_at" >= ${dayStart}
+      AND "recorded_at" < ${dayEnd}
+      AND "price" > 0
+  `;
+  const coreMinutes = await distinctCoreSessionMinutesToday(prisma, stockCode, dayStart, dayEnd);
+  const minT = rows[0]?.min_t ?? null;
+  const maxT = rows[0]?.max_t ?? null;
+  const coverage: MinuteCoverage = {
+    kstDate,
+    firstHhmmss: minT ? kstHhmmssOfMinute(minT) : null,
+    lastHhmmss: maxT ? kstHhmmssOfMinute(maxT) : null,
+    distinctMinutes: Number(rows[0]?.distinct_minutes ?? 0),
+    coreMinutes,
+    updatedAtMs: Date.now(),
+  };
+  await redisSetJson(key, coverage, 15_000);
+  return coverage;
+}
+
+export async function isMinuteCoverageFreshEnough(
+  prisma: PrismaClient,
+  stockCode: string,
+): Promise<{ ok: boolean; coverage: MinuteCoverage }> {
+  const coverage = await loadMinuteCoverageToday(prisma, stockCode);
+  const nowFloor = kstMinuteStartFloor();
+  const target = new Date(nowFloor.getTime() - 60_000);
+  const targetHhmmss = kstHhmmssOfMinute(target);
+  const coreLooksFull = coverage.coreMinutes >= 120;
+  const lastLooksRecent =
+    coverage.lastHhmmss != null && hhmmssToSec(coverage.lastHhmmss) >= hhmmssToSec(targetHhmmss);
+  return { ok: coreLooksFull && lastLooksRecent, coverage };
 }
 
 /** 현재 KST 시각이 구간 안이면 그 시각부터, 아니면 구간 끝(역방향 페이지네이션 시작점) */
@@ -518,6 +651,8 @@ export type BackfillKisMinuteTodayOpts = {
   force?: boolean;
   /** 서버 재기동 보강 시작 시각(KST HHMMSS). 예: 154500 */
   startupFromHhmmss?: string;
+  /** 사용자 차트 조회 직전 경로: 응답 지연을 줄이기 위해 페이지 간 대기를 더 낮춘다. */
+  interactive?: boolean;
 };
 
 function kstHourMinute(d: Date): { hour: number; minute: number } {
@@ -596,6 +731,7 @@ export async function maybeBackfillKisMinuteToday(
   opts?: BackfillKisMinuteTodayOpts,
 ): Promise<void> {
   const force = opts?.force === true;
+  const interactive = opts?.interactive === true;
   const startupFromHhmmss = opts?.startupFromHhmmss?.trim();
   const key = env.KIS_APP_KEY?.trim();
   const secret = env.KIS_APP_SECRET?.trim();
@@ -610,19 +746,11 @@ export async function maybeBackfillKisMinuteToday(
   const dayEnd = new Date(dayStart.getTime() + 86_400_000);
 
   if (!force) {
-    const todayBounds = await prisma.$queryRaw<{ min_t: Date | null; distinct_minutes: bigint }[]>`
-      SELECT
-        MIN("recorded_at") AS min_t,
-        COUNT(DISTINCT DATE_TRUNC('minute', "recorded_at" AT TIME ZONE 'Asia/Seoul'))::bigint AS distinct_minutes
-      FROM "stock_quote_history"
-      WHERE "stock_code" = ${stockCode}
-        AND "recorded_at" >= ${dayStart}
-        AND "price" > 0
-    `;
-    const b = todayBounds[0];
-    const minT = b?.min_t ?? null;
-    const distinctMinutes = Number(b?.distinct_minutes ?? 0);
-    const coreMinutes = await distinctCoreSessionMinutesToday(prisma, stockCode, dayStart, dayEnd);
+    const coverage = await loadMinuteCoverageToday(prisma, stockCode);
+    const minT =
+      coverage.firstHhmmss != null ? new Date(`${kstDate}T${coverage.firstHhmmss.slice(0, 2)}:${coverage.firstHhmmss.slice(2, 4)}:00+09:00`) : null;
+    const distinctMinutes = coverage.distinctMinutes;
+    const coreMinutes = coverage.coreMinutes;
     /** 09:00~14:30 구간에 충분한 분이 있어야 "당일 분봉이 이미 갖춰졌다"고 본다 */
     const coreLooksFull = coreMinutes >= 120;
     if (
@@ -631,7 +759,7 @@ export async function maybeBackfillKisMinuteToday(
       distinctMinutes >= 240 &&
       coreLooksFull
     ) {
-      minuteBackfillNotBefore.set(stockCode, 45_000);
+      minuteBackfillNotBefore.set(stockCode, now + 45_000);
       return;
     }
   }
@@ -647,7 +775,8 @@ export async function maybeBackfillKisMinuteToday(
   } catch {
     return;
   }
-  const gap = Math.min(700, Math.max(200, env.KIS_QUOTE_REQUEST_GAP_MS ?? 400));
+  const configuredGap = Math.min(700, Math.max(200, env.KIS_QUOTE_REQUEST_GAP_MS ?? 400));
+  const gap = interactive ? Math.max(80, Math.floor(configuredGap / 3)) : configuredGap;
 
   let todayClearedFrom8 = false;
   if (force) {
@@ -697,19 +826,22 @@ export async function maybeBackfillKisMinuteToday(
     const nxMin =
       resumeFrom && resumeFrom > nxMinBase && !todayClearedFrom8 ? resumeFrom : nxMinBase;
     const nxMax = "203059";
-    const cursorNx = pickInitialCursor(nxMin, nxMax);
-    inserted += await backfillKisMinuteTodaySegment(
-      prisma,
-      stockCode,
-      kstDate,
-      baseUrl,
-      token,
-      key,
-      secret,
-      kisCode,
-      gap,
-      { marketDiv: "NX", hhmmMin: nxMin, hhmmMax: nxMax, initialCursor: cursorNx },
-    );
+    const nowHhmmss = kstHhmmssFromDate(new Date());
+    if (nowHhmmss >= nxMinBase) {
+      const cursorNx = pickInitialCursor(nxMin, nxMax);
+      inserted += await backfillKisMinuteTodaySegment(
+        prisma,
+        stockCode,
+        kstDate,
+        baseUrl,
+        token,
+        key,
+        secret,
+        kisCode,
+        gap,
+        { marketDiv: "NX", hhmmMin: nxMin, hhmmMax: nxMax, initialCursor: cursorNx },
+      );
+    }
   }
 
   if (inserted === 0) {
@@ -738,7 +870,7 @@ export async function runStartupKisMinuteBackfill(
   const between = Math.min(700, Math.max(200, env.KIS_QUOTE_REQUEST_GAP_MS ?? 400));
   for (const s of stocks) {
     try {
-      await maybeBackfillKisMinuteToday(prisma, env, s.code, {
+      await startOrJoinKisMinuteBackfillToday(prisma, env, s.code, {
         force: true,
         startupFromHhmmss: opts?.startupFromHhmmss,
       });

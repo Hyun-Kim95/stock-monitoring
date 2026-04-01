@@ -16,6 +16,7 @@ export function createMarketDataProvider(
     const base = (env.KIS_REST_BASE_URL?.trim() || DEFAULT_KIS_BASE).replace(/\/$/, "");
     const trId = env.KIS_TR_ID_PRICE?.trim() || "FHKST01010100";
     const gap = env.KIS_QUOTE_REQUEST_GAP_MS ?? 400;
+    const investorRefreshMs = env.KIS_INVESTOR_REFRESH_MS ?? 10_000;
     return createKisPollingProvider({
       baseUrl: base,
       appKey: key,
@@ -23,6 +24,7 @@ export function createMarketDataProvider(
       trIdPrice: trId,
       pollIntervalMs: opts.pollIntervalMs,
       quoteRequestGapMs: Math.max(50, Math.min(5000, gap)),
+      investorRefreshMs,
     });
   }
   if (wantKis && (!key || !secret)) {

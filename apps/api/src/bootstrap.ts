@@ -18,7 +18,7 @@ import { registerNewsRuleRoutes } from "./routes/news-rules.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerNewsRoutes } from "./routes/news.js";
 import { createQuoteHistoryRecorder } from "./modules/history/quote-history.js";
-import { runStartupQuoteHistoryPrep } from "./modules/history/startup-quote-history.js";
+import { runStartupMinuteChartPrewarmQueue, runStartupQuoteHistoryPrep } from "./modules/history/startup-quote-history.js";
 
 const SETTING_LAST_STOPPED_AT = "runtime.api.last_stopped_at";
 
@@ -128,7 +128,8 @@ export async function createApiApplication(env: Env): Promise<{
   }
 
   const app = Fastify({
-    logger: env.NODE_ENV === "development",
+    logger: env.NODE_ENV === "development" ? { level: "warn" } : true,
+    disableRequestLogging: true,
     genReqId: () => randomUUID(),
   });
   app.addHook("onClose", async () => {
@@ -192,7 +193,7 @@ export async function createApiApplication(env: Env): Promise<{
   await refreshBroadcastThrottle();
 
   async function runAfterListen() {
-    /** DB의 market_data.provider(kis 등)를 즉시 반영. 당일 분봉 백필은 느리므로 그 뒤에 두면 그동안 mock으로 보이는 문제가 난다. */
+    /** 서버 기동 시 시세 공급은 먼저 시작하고, 분봉/히스토리 준비는 이어서 수행한다. */
     try {
       broadcastJson({
         type: "status",
@@ -202,6 +203,9 @@ export async function createApiApplication(env: Env): Promise<{
       });
       lastBroadcastMarketStatus = "시세·히스토리 준비 중…";
       await reloadMarketFromDb({ loading: true });
+      void runStartupMinuteChartPrewarmQueue(prisma, env).catch((e) => {
+        logError("runStartupMinuteChartPrewarmQueue failed", { err: String(e) });
+      });
       try {
         await runStartupQuoteHistoryPrep(prisma, env);
       } catch (e) {

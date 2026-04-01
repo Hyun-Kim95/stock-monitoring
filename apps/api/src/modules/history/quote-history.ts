@@ -255,6 +255,7 @@ export async function fetchChart(
 export function createQuoteHistoryRecorder(prisma: PrismaClient, opts: { throttleMs: number }) {
   const lastByCode = new Map<string, number>();
   const lastPointByCode = new Map<string, { price: number; volume: number | null }>();
+  const MAX_TICK_JUMP_RATIO = 0.25;
 
   return {
     record(quotes: QuoteSnapshot[]): void {
@@ -271,6 +272,11 @@ export function createQuoteHistoryRecorder(prisma: PrismaClient, opts: { throttl
         if (now - last < throttle) continue;
         const volNum = Number.isFinite(q.volume) ? Math.max(0, Math.floor(q.volume)) : null;
         const prev = lastPointByCode.get(code);
+        if (prev && prev.price > 0) {
+          // 단일 이상치 틱(가짜 급락/급등)이 분봉 저가·고가를 왜곡하지 않도록 저장 전 차단
+          const jumpRatio = Math.abs(Math.round(q.price) - prev.price) / prev.price;
+          if (jumpRatio > MAX_TICK_JUMP_RATIO) continue;
+        }
         if (prev && prev.price === Math.round(q.price) && prev.volume === volNum) continue;
         lastByCode.set(code, now);
         lastPointByCode.set(code, { price: Math.round(q.price), volume: volNum });

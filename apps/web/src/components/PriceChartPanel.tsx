@@ -629,24 +629,29 @@ export function PriceChartPanel({
             </span>
           ) : null}
         </div>
-        {industryMajorName ? (
+        {industryMajorName || (themeNames && themeNames.length > 0) ? (
           <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginBottom: 8, lineHeight: 1.45 }}>
-            <strong style={{ color: "var(--text)", fontWeight: 600 }}>산업대분류</strong> {industryMajorName}
-          </div>
-        ) : null}
-        {themeNames && themeNames.length > 0 ? (
-          <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginBottom: 8, lineHeight: 1.45 }}>
-            <strong style={{ color: "var(--text)", fontWeight: 600 }}>테마</strong>{" "}
-            {(showAllThemes ? themeNames : themeNames.slice(0, 3)).join(" · ")}
-            {themeNames.length > 3 ? (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                style={{ fontSize: 11, padding: "1px 8px", marginLeft: 6 }}
-                onClick={() => setShowAllThemes((v) => !v)}
-              >
-                {showAllThemes ? "접기" : `더보기 +${themeNames.length - 3}`}
-              </button>
+            {industryMajorName ? (
+              <>
+                <strong style={{ color: "var(--text)", fontWeight: 600 }}>대분류</strong> {industryMajorName}
+              </>
+            ) : null}
+            {industryMajorName && themeNames && themeNames.length > 0 ? " · " : null}
+            {themeNames && themeNames.length > 0 ? (
+              <>
+                <strong style={{ color: "var(--text)", fontWeight: 600 }}>테마</strong>{" "}
+                {(showAllThemes ? themeNames : themeNames.slice(0, 3)).join(" · ")}
+                {themeNames.length > 3 ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ fontSize: 11, padding: "1px 8px", marginLeft: 6 }}
+                    onClick={() => setShowAllThemes((v) => !v)}
+                  >
+                    {showAllThemes ? "접기" : `더보기 +${themeNames.length - 3}`}
+                  </button>
+                ) : null}
+              </>
             ) : null}
           </div>
         ) : null}
@@ -663,8 +668,6 @@ export function PriceChartPanel({
               {GRAN_LABELS[g]}
             </button>
           ))}
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginTop: 6 }}>
           <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>봉 개수</span>
           <input
             type="number"
@@ -679,55 +682,26 @@ export function PriceChartPanel({
             }}
             style={{ width: 110 }}
           />
+          <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
+            <strong style={{ color: "var(--text)", fontWeight: 600 }}>수집범위:</strong>{" "}
+            {meta?.historyFirstAt && meta?.historyLastAt ? (
+              <>
+                {new Date(meta.historyFirstAt).toLocaleDateString("ko-KR")} ~{" "}
+                {new Date(meta.historyLastAt).toLocaleDateString("ko-KR")}
+              </>
+            ) : (
+              "없음"
+            )}
+          </span>
           {granularity === "minute" && showMinuteBackfillBadge ? (
             <span className="badge">분봉 보강 중…</span>
           ) : null}
         </div>
       </div>
       <p style={{ margin: "0 0 8px", fontSize: 11, color: "var(--muted-foreground)", lineHeight: 1.45 }}>
-        시세는 서버에서 최소 약 1초 간격으로 저장됩니다. <strong>일·월·년</strong> 마지막 봉은 오늘/이번 달/올해에
-        해당할 때 WebSocket 현재가로 종가를 맞춥니다. <strong>분</strong> 봉은 같은 분 구간에서 실시간 반영됩니다.
-        <strong>분</strong> 봉은 같은 KST 거래일 안에서 시세가 없던 분은 캔들 없이 시간축만 비워 보입니다. 전날·장
-        마감~익일처럼 긴 구간은 분을 전부 채우지 않고 시간축 간격만 둡니다(전날 분봉은 API로 보강되지 않을 수
-        있음).
-        크로스헤어의 종가는 <strong>해당 봉(히스토리)</strong>의 값입니다. 아래는 <strong>최근부터 최대 N개</strong> 봉이며,
-        DB에 쌓인 기간이 짧으면 N보다 적게 보일 수 있습니다.
+        시세는 약 1초 간격으로 저장됩니다. 분봉은 빈 분을 건너뛰어 표시될 수 있고, 봉 개수는 DB에 저장된 기간에
+        따라 줄어들 수 있습니다.
       </p>
-      {meta && !err ? (
-        <div
-          style={{
-            marginBottom: 8,
-            padding: "8px 10px",
-            fontSize: 11,
-            lineHeight: 1.5,
-            borderRadius: 6,
-            border: "1px solid var(--border)",
-            background: "rgba(128,128,128,0.06)",
-          }}
-        >
-          <div>
-            <strong>조회:</strong> {meta.windowLabelKo}{" "}
-            <span style={{ color: "var(--muted-foreground)" }}>
-              (범위 시작 시각 {new Date(meta.windowFrom).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })})
-            </span>
-            {" · "}
-            <strong>봉</strong> {meta.barCount}개
-            {meta.limitCap != null ? (
-              <span style={{ color: "var(--muted-foreground)" }}> / 요청 상한 {meta.limitCap}개</span>
-            ) : null}
-            {meta.historyFirstAt && meta.historyLastAt ? (
-              <>
-                {" · "}
-                <strong>수집 범위</strong> {new Date(meta.historyFirstAt).toLocaleString("ko-KR")} ~{" "}
-                {new Date(meta.historyLastAt).toLocaleString("ko-KR")}
-              </>
-            ) : null}
-          </div>
-          {meta.hintKo ? (
-            <div style={{ marginTop: 6, color: "var(--text)" }}>ⓘ {meta.hintKo}</div>
-          ) : null}
-        </div>
-      ) : null}
       {err ? <div style={{ color: "var(--down)", fontSize: 12 }}>{err}</div> : null}
       {loading && !err ? (
         <div

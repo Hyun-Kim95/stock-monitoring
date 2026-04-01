@@ -8,6 +8,7 @@ import type { preHandlerHookHandler } from "fastify";
 import type { Env } from "../config.js";
 import { sendZodError } from "../lib/errors.js";
 import { logError } from "../lib/logger.js";
+import { redisDeleteByPrefix, redisGetJson, redisSetJson } from "../lib/redis.js";
 import {
   getNaverIndustryMajorName,
   getNaverIndustryMajorNames,
@@ -15,6 +16,8 @@ import {
 } from "../lib/naver-industry-major-name.js";
 import { countActiveStocks, getMaxActiveStocks } from "../lib/stock-limits.js";
 import {
+  isHistoryCoverageFreshEnough,
+  isMinuteCoverageFreshEnough,
   maybeBackfillKisChartHistory,
   startOrJoinKisMinuteBackfillToday,
 } from "../modules/history/kis-chart-backfill.js";
@@ -33,8 +36,6 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
   type Tx = Prisma.TransactionClient;
   /** 종목별 당일 분봉 KIS 보강 진행 상태 (UI 배지/상태 노출용) */
   const minuteBackfillInProgressByCode = new Map<string, boolean>();
-  /** 종목·일자별 첫 분봉 조회에서만 짧게 대기하고, 이후는 즉시 응답 */
-  const minuteInitialWaitDoneByCodeDay = new Map<string, boolean>();
   /** 분봉 차트 초단기 캐시 + 동일 키 동시요청 합치기 */
   const minuteChartCache = new Map<
     string,
@@ -243,54 +244,80 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     const useKis = provRow?.settingValue?.trim().toLowerCase() === "kis";
     if (useKis) {
       if (granularity === "minute") {
-        // 동일 종목·당일 백필은 한 번만 돌리고, "첫 조회"에서만 짧게 대기한다.
-        // 이후 폴링 요청은 즉시 응답해 UI 지연/중복 대기를 줄인다.
-        minuteBackfillInProgressByCode.set(stock.code, true);
-        const p = startOrJoinKisMinuteBackfillToday(prisma, env, stock.code);
-        void p.catch((e) => {
-          logError("maybeBackfillKisMinuteToday failed", { stockCode: stock.code, err: String(e) });
-        });
-        void p.finally(() => {
-          minuteBackfillInProgressByCode.set(stock.code, false);
-        });
-        const kstDay = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
-        const waitKey = `${stock.code}:${kstDay}`;
-        const firstWait = !(minuteInitialWaitDoneByCodeDay.get(waitKey) ?? false);
-        if (firstWait) {
-          minuteInitialWaitDoneByCodeDay.set(waitKey, true);
-          await Promise.race([
-            p,
-            new Promise<void>((resolve) => {
-              setTimeout(resolve, 2_500);
-            }),
-          ]);
+        const coverage = await isMinuteCoverageFreshEnough(prisma, stock.code).catch(() => ({ ok: false }));
+        if (!coverage.ok) {
+          minuteBackfillInProgressByCode.set(stock.code, true);
+          const p = startOrJoinKisMinuteBackfillToday(prisma, env, stock.code, { interactive: true });
+          void p.catch((e) => {
+            logError("maybeBackfillKisMinuteToday failed", { stockCode: stock.code, err: String(e) });
+          });
+          try {
+            await p;
+          } finally {
+            minuteBackfillInProgressByCode.set(stock.code, false);
+            // 백필 완료 직후에는 기존(부족한) 분봉 캐시를 쓰지 않도록 해당 종목 minute 캐시를 제거
+            const prefix = `${stock.code}|minute|`;
+            for (const k of minuteChartCache.keys()) {
+              if (k.startsWith(prefix)) minuteChartCache.delete(k);
+            }
+            await redisDeleteByPrefix(`chart:minute:${prefix}`);
+          }
+        } else {
+          // 이미 당일 분봉 커버리지가 충분하면 즉시 응답하고, 누락 보강은 백그라운드로 진행한다.
+          void startOrJoinKisMinuteBackfillToday(prisma, env, stock.code, { interactive: true }).catch(() => undefined);
         }
       } else {
-        await maybeBackfillKisChartHistory(prisma, env, stock.code);
+        const enough = await isHistoryCoverageFreshEnough(
+          prisma,
+          stock.code,
+          granularity as "day" | "month" | "year",
+          range,
+        ).catch(() => false);
+        if (!enough) {
+          await maybeBackfillKisChartHistory(prisma, env, stock.code);
+        } else {
+          void maybeBackfillKisChartHistory(prisma, env, stock.code);
+        }
       }
     }
     let chartBundle: Awaited<ReturnType<typeof fetchChart>>;
     if (granularity === "minute") {
       const minuteSession = minuteSessionRaw as "all" | "j" | "nx";
       const cacheKey = `${stock.code}|${granularity}|${range}|${limitOverride ?? "default"}|${minuteSession}`;
+      const redisCacheKey = `chart:minute:${cacheKey}`;
       const now = Date.now();
       const cached = minuteChartCache.get(cacheKey);
+      let minuteBundle: Awaited<ReturnType<typeof fetchChart>> | null = null;
       if (cached?.data && cached.expiresAt > now) {
-        chartBundle = cached.data;
-      } else if (cached?.inFlight) {
-        chartBundle = await cached.inFlight;
+        minuteBundle = cached.data;
       } else {
-        const inFlight = fetchChart(prisma, stock.code, granularity, range, {
-          limitOverride,
-          minuteSession,
-        });
-        minuteChartCache.set(cacheKey, { expiresAt: now + MINUTE_CHART_CACHE_TTL_MS, inFlight });
-        chartBundle = await inFlight;
-        minuteChartCache.set(cacheKey, {
-          expiresAt: Date.now() + MINUTE_CHART_CACHE_TTL_MS,
-          data: chartBundle,
-        });
+        const redisCached = await redisGetJson<Awaited<ReturnType<typeof fetchChart>>>(redisCacheKey);
+        if (redisCached) {
+          minuteChartCache.set(cacheKey, {
+            expiresAt: now + MINUTE_CHART_CACHE_TTL_MS,
+            data: redisCached,
+          });
+          minuteBundle = redisCached;
+        }
       }
+      if (!minuteBundle) {
+        if (cached?.inFlight) {
+          minuteBundle = await cached.inFlight;
+        } else {
+          const inFlight = fetchChart(prisma, stock.code, granularity, range, {
+            limitOverride,
+            minuteSession,
+          });
+          minuteChartCache.set(cacheKey, { expiresAt: now + MINUTE_CHART_CACHE_TTL_MS, inFlight });
+          minuteBundle = await inFlight;
+          minuteChartCache.set(cacheKey, {
+            expiresAt: Date.now() + MINUTE_CHART_CACHE_TTL_MS,
+            data: minuteBundle,
+          });
+          await redisSetJson(redisCacheKey, minuteBundle, MINUTE_CHART_CACHE_TTL_MS);
+        }
+      }
+      chartBundle = minuteBundle;
     } else {
       chartBundle = await fetchChart(prisma, stock.code, granularity, range, { limitOverride });
     }
