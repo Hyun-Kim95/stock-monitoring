@@ -11,6 +11,7 @@ type Stock = {
   industryMajorName: string | null;
   searchAlias: string | null;
   isActive: boolean;
+  nxEligible?: boolean | null;
   themes: { id: string; name: string }[];
 };
 type StockSearchItem = {

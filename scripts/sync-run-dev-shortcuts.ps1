@@ -1,14 +1,14 @@
-# run-dev.bat과 동일하게 동작하는 바로가기를 바탕화면·시작 프로그램에 맞춥니다.
-# (바로가기 대상 = 저장소의 run-dev.bat 한 곳만 유지)
+# PowerShell 시작 스크립트를 바로가기에 연결해, 부팅/로그온 시 배치 파싱 이슈를 피합니다.
 param(
   [string]$ProjectDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 )
 
 $ErrorActionPreference = "Stop"
-$bat = Join-Path $ProjectDir "run-dev.bat"
-if (-not (Test-Path -LiteralPath $bat)) {
-  Write-Error "run-dev.bat을 찾을 수 없습니다: $bat"
+$startupPs1 = Join-Path $ProjectDir "scripts\startup-run-dev.ps1"
+if (-not (Test-Path -LiteralPath $startupPs1)) {
+  Write-Error "startup-run-dev.ps1을 찾을 수 없습니다: $startupPs1"
 }
+$pwsh = Join-Path $PSHOME "powershell.exe"
 
 $shell = New-Object -ComObject WScript.Shell
 $desktop = [Environment]::GetFolderPath("Desktop")
@@ -17,13 +17,15 @@ $startup = [Environment]::GetFolderPath("Startup")
 function Set-DevShortcut {
   param(
     [string]$LinkPath,
-    [string]$Arguments,
+    [switch]$StartupMode,
     [int]$WindowStyle,
     [string]$Comment
   )
   $sc = $shell.CreateShortcut($LinkPath)
-  $sc.TargetPath = $bat
-  $sc.Arguments = $Arguments
+  $sc.TargetPath = $pwsh
+  $arg = "-NoProfile -ExecutionPolicy Bypass -File `"$startupPs1`""
+  if ($StartupMode) { $arg += " -StartupMode" }
+  $sc.Arguments = $arg
   $sc.WorkingDirectory = $ProjectDir
   $sc.WindowStyle = $WindowStyle
   $sc.Description = $Comment
@@ -31,20 +33,17 @@ function Set-DevShortcut {
 }
 
 $deskLink = Join-Path $desktop "stockMonitoring dev.lnk"
-Set-DevShortcut -LinkPath $deskLink -Arguments "" -WindowStyle 1 -Comment "stockMonitoring npm run dev (브라우저 자동 열기)"
+Set-DevShortcut -LinkPath $deskLink -WindowStyle 1 -Comment "stockMonitoring npm run dev (브라우저 자동 열기)"
 Write-Host "바탕화면: $deskLink"
 
 $startLink = Join-Path $startup "stockMonitoring dev.lnk"
-Set-DevShortcut -LinkPath $startLink -Arguments "--startup" -WindowStyle 7 -Comment "stockMonitoring dev (Windows 시작 시, 최소화)"
+Set-DevShortcut -LinkPath $startLink -StartupMode -WindowStyle 7 -Comment "stockMonitoring dev (Windows 시작 시, 최소화)"
 Write-Host "시작 프로그램: $startLink"
 
-# 예전에 .vbs로 run-dev를 띄우던 경우, 시작 프로그램에 lnk+vbs가 같이 있으면 서버가 두 번 실행됨
-$vbsMaybeDup = Get-ChildItem -LiteralPath $startup -File -ErrorAction SilentlyContinue |
-  Where-Object { $_.Extension -ieq ".vbs" -and ($_.Name -match "stock|monitor|run-dev") }
-if ($vbsMaybeDup) {
-  Write-Host ""
-  Write-Warning "시작 프로그램에 아래 .vbs가 있으면 'stockMonitoring dev.lnk'와 중복입니다. .vbs는 삭제하고 .lnk만 두세요."
-  $vbsMaybeDup | ForEach-Object { Write-Host "    $($_.FullName)" }
+$vbsLegacy = Join-Path $startup "stockMonitoring-dev.vbs"
+if (Test-Path -LiteralPath $vbsLegacy) {
+  Remove-Item -LiteralPath $vbsLegacy -Force -ErrorAction SilentlyContinue
+  Write-Host "기존 VBS 자동실행 항목 제거: $vbsLegacy"
 }
 
 Write-Host "완료."

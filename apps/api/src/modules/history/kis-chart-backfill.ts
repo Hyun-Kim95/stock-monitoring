@@ -34,7 +34,10 @@ type MinuteCoverage = {
   firstHhmmss: string | null;
   lastHhmmss: string | null;
   distinctMinutes: number;
+  /** KST 09:00~14:30 구간 분 수(장중 코어) */
   coreMinutes: number;
+  /** KST 08:00~09:00 미만 구간 분 수(프리·동시호가 등). 없으면 차트가 9시부터만 보일 수 있음 */
+  premarketMinutes: number;
   updatedAtMs: number;
 };
 
@@ -380,7 +383,27 @@ function formatKstDateOnly(d: Date): string {
 }
 
 function minuteCoverageRedisKey(stockCode: string, kstDate: string): string {
-  return `minute-coverage:${stockCode}:${kstDate}`;
+  return `minute-coverage-v2:${stockCode}:${kstDate}`;
+}
+
+function minutePremarketAttemptRedisKey(stockCode: string, kstDate: string): string {
+  return `minute-premarket-attempted:${stockCode}:${kstDate}`;
+}
+
+/** KST 평일 09:05 이후에는 프리마켓(08~09) 분이 없으면 당일분봉 보강을 한 번 더 시도한다 */
+function kstPastPremarketWindow(now = new Date()): boolean {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const wd = parts.find((p) => p.type === "weekday")?.value ?? "";
+  if (wd === "Sat" || wd === "Sun") return false;
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  return hour * 60 + minute >= 9 * 60 + 5;
 }
 
 /** KST 기준 `now`가 속한 분의 시작 시각 — 분봉 차트·백필에서 ‘아직 도래하지 않은 분’ 제외에 사용 */
@@ -502,6 +525,7 @@ async function loadMinuteCoverageToday(prisma: PrismaClient, stockCode: string):
       AND "price" > 0
   `;
   const coreMinutes = await distinctCoreSessionMinutesToday(prisma, stockCode, dayStart, dayEnd);
+  const premarketMinutes = await distinctPremarketMinutesToday(prisma, stockCode, dayStart, dayEnd);
   const minT = rows[0]?.min_t ?? null;
   const maxT = rows[0]?.max_t ?? null;
   const coverage: MinuteCoverage = {
@@ -510,6 +534,7 @@ async function loadMinuteCoverageToday(prisma: PrismaClient, stockCode: string):
     lastHhmmss: maxT ? kstHhmmssOfMinute(maxT) : null,
     distinctMinutes: Number(rows[0]?.distinct_minutes ?? 0),
     coreMinutes,
+    premarketMinutes,
     updatedAtMs: Date.now(),
   };
   await redisSetJson(key, coverage, 15_000);
@@ -527,7 +552,15 @@ export async function isMinuteCoverageFreshEnough(
   const coreLooksFull = coverage.coreMinutes >= 120;
   const lastLooksRecent =
     coverage.lastHhmmss != null && hhmmssToSec(coverage.lastHhmmss) >= hhmmssToSec(targetHhmmss);
-  return { ok: coreLooksFull && lastLooksRecent, coverage };
+  const pastPremarket = kstPastPremarketWindow();
+  const premarketAttempted = await redisGetJson<{ v: number }>(
+    minutePremarketAttemptRedisKey(stockCode, coverage.kstDate),
+  );
+  const premarketGapAcceptable =
+    !pastPremarket ||
+    coverage.premarketMinutes >= 1 ||
+    premarketAttempted?.v === 1;
+  return { ok: coreLooksFull && lastLooksRecent && premarketGapAcceptable, coverage };
 }
 
 /** 현재 KST 시각이 구간 안이면 그 시각부터, 아니면 구간 끝(역방향 페이지네이션 시작점) */
@@ -653,6 +686,8 @@ export type BackfillKisMinuteTodayOpts = {
   startupFromHhmmss?: string;
   /** 사용자 차트 조회 직전 경로: 응답 지연을 줄이기 위해 페이지 간 대기를 더 낮춘다. */
   interactive?: boolean;
+  /** KIS 폴링의 NXT 적격 맵. `false`만 오전 NX 분봉 시도를 건너뜀. */
+  getNxEligibilityByCode?: () => Record<string, boolean | null>;
 };
 
 function kstHourMinute(d: Date): { hour: number; minute: number } {
@@ -723,6 +758,26 @@ async function distinctCoreSessionMinutesToday(
   return Number(rows[0]?.n ?? 0);
 }
 
+async function distinctPremarketMinutesToday(
+  prisma: PrismaClient,
+  stockCode: string,
+  dayStart: Date,
+  dayEnd: Date,
+): Promise<number> {
+  const rows = await prisma.$queryRaw<{ n: bigint }[]>`
+    SELECT COUNT(DISTINCT DATE_TRUNC('minute', "recorded_at" AT TIME ZONE 'Asia/Seoul'))::bigint AS n
+    FROM "stock_quote_history"
+    WHERE "stock_code" = ${stockCode}
+      AND "recorded_at" >= ${dayStart}
+      AND "recorded_at" < ${dayEnd}
+      AND "price" > 0
+      AND EXTRACT(ISODOW FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) BETWEEN 1 AND 5
+      AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time >= TIME '08:00:00')
+      AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time < TIME '09:00:00')
+  `;
+  return Number(rows[0]?.n ?? 0);
+}
+
 /** 분봉에서 오늘 장중 데이터가 비는 경우, KIS 당일분봉(30건/page)을 역순으로 수집해 보강 */
 export async function maybeBackfillKisMinuteToday(
   prisma: PrismaClient,
@@ -751,13 +806,17 @@ export async function maybeBackfillKisMinuteToday(
       coverage.firstHhmmss != null ? new Date(`${kstDate}T${coverage.firstHhmmss.slice(0, 2)}:${coverage.firstHhmmss.slice(2, 4)}:00+09:00`) : null;
     const distinctMinutes = coverage.distinctMinutes;
     const coreMinutes = coverage.coreMinutes;
+    const premarketMinutes = coverage.premarketMinutes;
     /** 09:00~14:30 구간에 충분한 분이 있어야 "당일 분봉이 이미 갖춰졌다"고 본다 */
     const coreLooksFull = coreMinutes >= 120;
+    const pastPremarket = kstPastPremarketWindow();
+    const premarketLooksOk = !pastPremarket || premarketMinutes >= 1;
     if (
       minT != null &&
       minT.getTime() <= kstOpenGrace.getTime() &&
       distinctMinutes >= 240 &&
-      coreLooksFull
+      coreLooksFull &&
+      premarketLooksOk
     ) {
       minuteBackfillNotBefore.set(stockCode, now + 45_000);
       return;
@@ -804,11 +863,39 @@ export async function maybeBackfillKisMinuteToday(
    */
   const resumeFrom =
     force && startupFromHhmmss && /^\d{6}$/.test(startupFromHhmmss) ? startupFromHhmmss : null;
+
+  /**
+   * J(거래소) 당일분봉은 09:00 이전 봉이 비는 경우가 많고, NXT 적격 종목의 08:00~08:59는 NX 구분으로만 내려온다.
+   * - 명시적으로 NXT 비적격(false)이면 J만 08:00부터.
+   * - 그 외에는 먼저 NX 08:00~08:59를 시도하고, 한 건이라도 나오면 J는 09:00부터(분 단위 중복 삽입 방지).
+   */
+  const nxMap = opts?.getNxEligibilityByCode?.() ?? {};
+  const nxKnownFalse = nxMap[stockCode] === false;
+  let inserted = 0;
+  let nxMorningInserted = 0;
+  if (!nxKnownFalse) {
+    const cursorNxAm = pickInitialCursor("080000", "085959");
+    nxMorningInserted = await backfillKisMinuteTodaySegment(
+      prisma,
+      stockCode,
+      kstDate,
+      baseUrl,
+      token,
+      key,
+      secret,
+      kisCode,
+      gap,
+      { marketDiv: "NX", hhmmMin: "080000", hhmmMax: "085959", initialCursor: cursorNxAm },
+    );
+    inserted += nxMorningInserted;
+  }
+  const jFrom090 = nxMap[stockCode] === true || (!nxKnownFalse && nxMorningInserted > 0);
+  const jMinFloor = jFrom090 ? "090000" : "080000";
   const jMin =
-    resumeFrom && resumeFrom > "080000" && !todayClearedFrom8 ? resumeFrom : "080000";
+    resumeFrom && resumeFrom > jMinFloor && !todayClearedFrom8 ? resumeFrom : jMinFloor;
   const jMax = "153059";
   const cursorJ = pickInitialCursor(jMin, jMax);
-  let inserted = await backfillKisMinuteTodaySegment(
+  inserted += await backfillKisMinuteTodaySegment(
     prisma,
     stockCode,
     kstDate,
@@ -820,6 +907,10 @@ export async function maybeBackfillKisMinuteToday(
     gap,
     { marketDiv: "J", hhmmMin: jMin, hhmmMax: jMax, initialCursor: cursorJ },
   );
+
+  if (interactive && !force) {
+    await redisSetJson(minutePremarketAttemptRedisKey(stockCode, kstDate), { v: 1 }, 48 * 3600 * 1000);
+  }
 
   if (force) {
     const nxMinBase = "153100";
@@ -855,7 +946,7 @@ export async function maybeBackfillKisMinuteToday(
 export async function runStartupKisMinuteBackfill(
   prisma: PrismaClient,
   env: Env,
-  opts?: { startupFromHhmmss?: string },
+  opts?: { startupFromHhmmss?: string; getNxEligibilityByCode?: () => Record<string, boolean | null> },
 ): Promise<void> {
   const key = env.KIS_APP_KEY?.trim();
   const secret = env.KIS_APP_SECRET?.trim();
@@ -873,6 +964,7 @@ export async function runStartupKisMinuteBackfill(
       await startOrJoinKisMinuteBackfillToday(prisma, env, s.code, {
         force: true,
         startupFromHhmmss: opts?.startupFromHhmmss,
+        getNxEligibilityByCode: opts?.getNxEligibilityByCode,
       });
     } catch {
       /* 한 종목 실패해도 다음 종목 계속 */

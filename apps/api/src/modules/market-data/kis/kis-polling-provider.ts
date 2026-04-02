@@ -137,9 +137,13 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
   let connected = false;
   let statusMessage = "KIS 초기화";
   let tickInFlight = false;
-  const nxEligibleByCode = new Map<string, boolean>();
+  const nxEligibleByCode = new Map<string, boolean | null>();
+  const nxEligibilityFailByCode = new Map<string, number>();
   const investorNetByCode = new Map<string, { value: number | null; fetchedAt: number; inFlight?: Promise<void> }>();
   let tokenCacheHydrated = false;
+  /** tick과 동시에 seed하면 토큰 발급·한도에서 실패하고 맵이 영원히 비는 경우가 있어, 첫 틱 이후에만 시드한다 */
+  let nxEligibilitySeedStarted = false;
+  let nxEligibilitySeedQueued = false;
 
   async function refreshInvestorNetIfNeeded(token: string, code: string): Promise<void> {
     const refreshMs = opts.investorRefreshMs ?? 60_000;
@@ -307,12 +311,17 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
                 out = nxOut;
                 usedNx = true;
                 nxEligibleByCode.set(s.code, true);
+                nxEligibilityFailByCode.set(s.code, 0);
               } else {
-                // 0원/빈값 응답은 실거래 시세로 보지 않고 KRX(J)로 폴백
-                nxEligibleByCode.set(s.code, false);
+                // 0원/빈값은 시간대·상황 영향일 수 있어 즉시 미적격으로 단정하지 않는다.
+                const fail = (nxEligibilityFailByCode.get(s.code) ?? 0) + 1;
+                nxEligibilityFailByCode.set(s.code, fail);
+                nxEligibleByCode.set(s.code, fail >= 6 ? false : null);
               }
             } catch {
-              nxEligibleByCode.set(s.code, false);
+              const fail = (nxEligibilityFailByCode.get(s.code) ?? 0) + 1;
+              nxEligibilityFailByCode.set(s.code, fail);
+              nxEligibleByCode.set(s.code, fail >= 6 ? false : null);
             }
           }
 
@@ -354,6 +363,10 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
         if (!hitRateLimit) statusMessage = "KIS 연결 (REST 폴링)";
         for (const cb of listeners) cb(batch);
       }
+      if (!nxEligibilitySeedStarted && !nxEligibilitySeedQueued && symbols.length > 0) {
+        nxEligibilitySeedQueued = true;
+        seedNxEligibilityAsync();
+      }
     } catch (e) {
       const msg = String(e);
       if (msg.startsWith("Error: KIS_TOKEN_COOLDOWN:") || msg.includes("KIS_TOKEN_COOLDOWN:")) {
@@ -370,6 +383,48 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
     }
   }
 
+  /** 장중에도 관심종목 표에서 NXT 여부를 쓰려면 NX 현재가 1회 조회로 맵을 채운다 */
+  function seedNxEligibilityAsync(): void {
+    void (async () => {
+      try {
+        if (symbols.length === 0) return;
+        const gap = Math.max(0, opts.quoteRequestGapMs);
+        const token = await ensureToken();
+        nxEligibilitySeedStarted = true;
+        for (let i = 0; i < symbols.length; i++) {
+          const s = symbols[i]!;
+          if (nxEligibleByCode.has(s.code)) continue;
+          try {
+            const kisIscd = normalizeKrxStockCode(s.code);
+            const nxOut = await fetchKisInquirePrice(
+              opts.baseUrl,
+              token,
+              opts.appKey,
+              opts.appSecret,
+              kisIscd,
+              opts.trIdPrice,
+              "NX",
+            );
+            const nxPrice = parsePositive(nxOut, "stck_prpr", "STCK_PRPR");
+            if (Number.isFinite(nxPrice) && nxPrice > 0) {
+              nxEligibleByCode.set(s.code, true);
+              nxEligibilityFailByCode.set(s.code, 0);
+            } else {
+              nxEligibleByCode.set(s.code, null);
+            }
+          } catch {
+            nxEligibleByCode.set(s.code, null);
+          }
+          if (i < symbols.length - 1) await sleep(gap);
+        }
+      } catch {
+        /* 토큰 실패 등 — started 미설정 상태로 두어 다음 틱에서 다시 큐 */
+      } finally {
+        nxEligibilitySeedQueued = false;
+      }
+    })();
+  }
+
   return {
     start(nextSymbols) {
       this.stop();
@@ -380,6 +435,10 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
       lastQuotes = [];
       tokenState = null;
       investorNetByCode.clear();
+      nxEligibleByCode.clear();
+      nxEligibilityFailByCode.clear();
+      nxEligibilitySeedStarted = false;
+      nxEligibilitySeedQueued = false;
       void tick();
       timer = setInterval(() => void tick(), Math.max(500, opts.pollIntervalMs));
       connected = true;
@@ -401,6 +460,14 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
     },
     getStatusMessage() {
       return statusMessage;
+    },
+    getNxEligibilityByCode() {
+      const out: Record<string, boolean | null> = {};
+      for (const s of symbols) {
+        const v = nxEligibleByCode.get(s.code);
+        out[s.code] = v === undefined ? null : v;
+      }
+      return out;
     },
   };
 }

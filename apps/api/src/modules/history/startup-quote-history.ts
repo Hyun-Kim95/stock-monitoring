@@ -56,7 +56,11 @@ async function markLastStartedAt(prisma: PrismaClient, now: Date): Promise<void>
  * 서버 기동 직후: (옵션) 시세 히스토리 삭제 → KIS면 당일 분봉 선백필.
  * 이후 `reloadMarketFromDb`에서 폴링이 시작되므로, 저장은 폴링보다 먼저 채워짐.
  */
-export async function runStartupQuoteHistoryPrep(prisma: PrismaClient, env: Env): Promise<void> {
+export async function runStartupQuoteHistoryPrep(
+  prisma: PrismaClient,
+  env: Env,
+  opts?: { getNxEligibilityByCode?: () => Record<string, boolean | null> },
+): Promise<void> {
   const mode = env.QUOTE_HISTORY_RESET_ON_START;
   const now = new Date();
 
@@ -98,7 +102,10 @@ export async function runStartupQuoteHistoryPrep(prisma: PrismaClient, env: Env)
       parseIsoDate(lastStartedRow?.settingValue),
     );
 
-    await runStartupKisMinuteBackfill(prisma, env, { startupFromHhmmss: fromHhmmss });
+    await runStartupKisMinuteBackfill(prisma, env, {
+      startupFromHhmmss: fromHhmmss,
+      getNxEligibilityByCode: opts?.getNxEligibilityByCode,
+    });
   } finally {
     await markLastStartedAt(prisma, now);
   }
@@ -109,7 +116,11 @@ export async function runStartupQuoteHistoryPrep(prisma: PrismaClient, env: Env)
  * - 종목별 당일 분봉 백필을 우선 시도(이미 진행 중이면 조인)
  * - minute 차트 compact/normal 결과를 Redis에 짧게 예열
  */
-export async function runStartupMinuteChartPrewarmQueue(prisma: PrismaClient, env: Env): Promise<void> {
+export async function runStartupMinuteChartPrewarmQueue(
+  prisma: PrismaClient,
+  env: Env,
+  opts?: { getNxEligibilityByCode?: () => Record<string, boolean | null> },
+): Promise<void> {
   const provRow = await prisma.systemSetting.findUnique({
     where: { settingKey: "market_data.provider" },
   });
@@ -130,7 +141,11 @@ export async function runStartupMinuteChartPrewarmQueue(prisma: PrismaClient, en
     const stockStartedAt = Date.now();
     let step = "backfill";
     try {
-      await startOrJoinKisMinuteBackfillToday(prisma, env, s.code, { force: true, interactive: true });
+      await startOrJoinKisMinuteBackfillToday(prisma, env, s.code, {
+        force: true,
+        interactive: true,
+        getNxEligibilityByCode: opts?.getNxEligibilityByCode,
+      });
       step = "cache";
       for (const range of ranges) {
         const bundle = await fetchChart(prisma, s.code, "minute", range, { minuteSession: "all" });

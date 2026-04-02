@@ -29,10 +29,11 @@ type Ctx = {
   adminPre: preHandlerHookHandler;
   reloadMarket: () => Promise<void>;
   env: Env;
+  getNxEligibilityByCode: () => Record<string, boolean | null>;
 };
 
 export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
-  const { prisma, adminPre, reloadMarket, env } = ctx;
+  const { prisma, adminPre, reloadMarket, env, getNxEligibilityByCode } = ctx;
   type Tx = Prisma.TransactionClient;
   /** 종목별 당일 분봉 KIS 보강 진행 상태 (UI 배지/상태 노출용) */
   const minuteBackfillInProgressByCode = new Map<string, boolean>();
@@ -46,6 +47,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     }
   >();
   const MINUTE_CHART_CACHE_TTL_MS = 2_500;
+
 
   async function fetchIndustryMajorCodeFromNaver(code: string): Promise<string | null> {
     try {
@@ -175,6 +177,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
       },
     });
     const nameByIndustry = await getNaverIndustryMajorNames(rows.map((r) => r.industryMajorCode));
+    const nxMap = getNxEligibilityByCode();
     return {
       stocks: rows.map((s) => {
         const ic = s.industryMajorCode?.trim() ?? "";
@@ -186,6 +189,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
           industryMajorName: ic ? (nameByIndustry.get(ic) ?? null) : null,
           searchAlias: s.searchAlias,
           isActive: s.isActive,
+          nxEligible: nxMap[s.code] ?? null,
           themes: s.themeMaps
             .filter((m) => m.theme.isActive)
             .map((m) => ({
@@ -247,7 +251,10 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
         const coverage = await isMinuteCoverageFreshEnough(prisma, stock.code).catch(() => ({ ok: false }));
         if (!coverage.ok) {
           minuteBackfillInProgressByCode.set(stock.code, true);
-          const p = startOrJoinKisMinuteBackfillToday(prisma, env, stock.code, { interactive: true });
+          const p = startOrJoinKisMinuteBackfillToday(prisma, env, stock.code, {
+            interactive: true,
+            getNxEligibilityByCode,
+          });
           void p.catch((e) => {
             logError("maybeBackfillKisMinuteToday failed", { stockCode: stock.code, err: String(e) });
           });
@@ -264,7 +271,10 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
           }
         } else {
           // 이미 당일 분봉 커버리지가 충분하면 즉시 응답하고, 누락 보강은 백그라운드로 진행한다.
-          void startOrJoinKisMinuteBackfillToday(prisma, env, stock.code, { interactive: true }).catch(() => undefined);
+          void startOrJoinKisMinuteBackfillToday(prisma, env, stock.code, {
+            interactive: true,
+            getNxEligibilityByCode,
+          }).catch(() => undefined);
         }
       } else {
         const enough = await isHistoryCoverageFreshEnough(

@@ -60,6 +60,9 @@ if "%STARTUP_MODE%"=="0" (
 REM Extra cmd window would look like a second screen at login — use hidden PowerShell for delay + browser.
 start "" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "Start-Sleep -Seconds 8; Start-Process 'http://localhost:3000'"
 
+REM Another project (e.g. sportsMatchData) on the same API port makes /stocks 404 — free it for this repo.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_DIR%\scripts\free-port-4000.ps1"
+
 call npm run dev
 set "EXIT_CODE=%ERRORLEVEL%"
 

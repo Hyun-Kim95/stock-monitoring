@@ -13,4 +13,6 @@ export type MarketDataProvider = {
   isConnected(): boolean;
   /** 외부 시세 소스 상태 메시지 (선택) */
   getStatusMessage?: () => string;
+  /** 종목코드 → NXT(넥스트) 시세 조회 가능 여부. 미판별은 null (KIS 전용) */
+  getNxEligibilityByCode?: () => Record<string, boolean | null>;
 };

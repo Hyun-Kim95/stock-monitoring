@@ -124,5 +124,12 @@ export function createMockMarketProvider(opts?: { statusHint?: string }): Market
     getStatusMessage() {
       return opts?.statusHint ?? "mock provider";
     },
+    getNxEligibilityByCode() {
+      const out: Record<string, boolean | null> = {};
+      for (const code of state.keys()) {
+        out[code] = false;
+      }
+      return out;
+    },
   };
 }

@@ -158,6 +158,7 @@ export async function createApiApplication(env: Env): Promise<{
     adminPre,
     reloadMarket: reloadMarketFromDb,
     env,
+    getNxEligibilityByCode: () => market.getNxEligibilityByCode?.() ?? {},
   });
   await registerThemeRoutes(app, { prisma, adminPre });
   await registerNewsRuleRoutes(app, { prisma, adminPre, newsCache });
@@ -203,11 +204,12 @@ export async function createApiApplication(env: Env): Promise<{
       });
       lastBroadcastMarketStatus = "시세·히스토리 준비 중…";
       await reloadMarketFromDb({ loading: true });
-      void runStartupMinuteChartPrewarmQueue(prisma, env).catch((e) => {
+      const nxSnap = () => market.getNxEligibilityByCode?.() ?? {};
+      void runStartupMinuteChartPrewarmQueue(prisma, env, { getNxEligibilityByCode: nxSnap }).catch((e) => {
         logError("runStartupMinuteChartPrewarmQueue failed", { err: String(e) });
       });
       try {
-        await runStartupQuoteHistoryPrep(prisma, env);
+        await runStartupQuoteHistoryPrep(prisma, env, { getNxEligibilityByCode: nxSnap });
       } catch (e) {
         logError("runStartupQuoteHistoryPrep failed", { err: String(e) });
       }

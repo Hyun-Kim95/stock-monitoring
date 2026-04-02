@@ -18,6 +18,8 @@ type StockApi = {
   industryMajorCode: string | null;
   industryMajorName: string | null;
   searchAlias: string | null;
+  /** KIS 기준 넥스트(NXT) 시세 조회 가능. null은 아직 판별 전(모의시세는 항상 null) */
+  nxEligible: boolean | null;
   themes: ThemeBrief[];
 };
 
@@ -71,6 +73,13 @@ export function DashboardPage() {
 
   useEffect(() => {
     void refreshStocks();
+  }, [refreshStocks]);
+
+  /** NXT 열은 KIS NX 프로브(종목 수×간격) 후 채워지므로 여러 번 목록 갱신 */
+  useEffect(() => {
+    const delays = [10_000, 35_000, 90_000];
+    const timers = delays.map((ms) => window.setTimeout(() => void refreshStocks(), ms));
+    return () => timers.forEach((t) => clearTimeout(t));
   }, [refreshStocks]);
 
   const selected = stocks.find((s) => s.id === selectedId) ?? null;
@@ -257,6 +266,9 @@ export function DashboardPage() {
               <thead>
                 <tr>
                   <th>종목</th>
+                  <th style={{ width: 56, textAlign: "center" }} title="넥스트(NXT) 시간외 거래 시세 조회 가능 여부(KIS)">
+                    NXT
+                  </th>
                   <th className="num" style={{ cursor: "pointer" }} onClick={() => toggleSort("price")}>
                     현재가 {sortKey === "price" ? (sortDir === "asc" ? "▲" : "▼") : ""}
                   </th>
@@ -288,7 +300,7 @@ export function DashboardPage() {
               <tbody>
                 {stocksLoading && stocks.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: 24, textAlign: "center", color: "var(--muted-foreground)" }}>
+                    <td colSpan={8} style={{ padding: 24, textAlign: "center", color: "var(--muted-foreground)" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                         <span className="loading-dot" aria-hidden />
                         종목 목록을 불러오는 중…
@@ -313,6 +325,21 @@ export function DashboardPage() {
                       <td>
                         <div style={{ fontWeight: 600 }}>{s.name}</div>
                         <div style={{ color: "var(--muted-foreground)", fontSize: 11 }}>{s.code}</div>
+                      </td>
+                      <td style={{ textAlign: "center", verticalAlign: "middle" }}>
+                        {s.nxEligible === true ? (
+                          <span className="badge" title="넥스트(NXT) 시간외 매매 시세 사용 가능">
+                            NXT
+                          </span>
+                        ) : s.nxEligible === false ? (
+                          <span style={{ color: "var(--muted-foreground)", fontSize: 12 }} title="NXT 미지원 또는 미적격">
+                            —
+                          </span>
+                        ) : (
+                          <span style={{ color: "var(--muted-foreground)", fontSize: 11 }} title="KIS에서 아직 확인하지 않음">
+                            …
+                          </span>
+                        )}
                       </td>
                       <td className="num">{q ? formatQuotePrice(q) : "—"}</td>
                       <td className={`num ${crCls}`}>
