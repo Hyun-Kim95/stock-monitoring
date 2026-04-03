@@ -5,6 +5,7 @@ import type {
   CandlestickData,
   IChartApi,
   ISeriesApi,
+  LineData,
   MouseEventParams,
   Time,
   UTCTimestamp,
@@ -53,6 +54,23 @@ function toLwCandles(rows: ChartApi["candles"]): CandlestickData<UTCTimestamp>[]
     low: r.low,
     close: r.close,
   }));
+}
+
+/** 종가 기준 단순 이동평균(봉 N개). 일봉이면 통상의 N일선과 동일 */
+function computeSma(
+  points: { time: UTCTimestamp; close: number }[],
+  period: number,
+): LineData<UTCTimestamp>[] {
+  if (period < 1 || points.length < period) return [];
+  const out: LineData<UTCTimestamp>[] = [];
+  let sum = 0;
+  for (let i = 0; i < period; i++) sum += points[i]!.close;
+  out.push({ time: points[period - 1]!.time, value: sum / period });
+  for (let i = period; i < points.length; i++) {
+    sum += points[i]!.close - points[i - period]!.close;
+    out.push({ time: points[i]!.time, value: sum / period });
+  }
+  return out;
 }
 
 /** 현재 시각의 KST 분 시작(초 단위 UTC epoch) — 서버 분봉 집계와 동일한 버킷 */
@@ -349,6 +367,11 @@ export function PriceChartPanel({
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const maSeriesRef = useRef<{
+    ma5: ISeriesApi<"Line"> | null;
+    ma20: ISeriesApi<"Line"> | null;
+    ma200: ISeriesApi<"Line"> | null;
+  }>({ ma5: null, ma20: null, ma200: null });
   const [granularity, setGranularity] = useState<Granularity>("day");
   const [barLimit, setBarLimit] = useState(2000);
   const [candles, setCandles] = useState<ChartApi["candles"]>([]);
@@ -364,6 +387,9 @@ export function PriceChartPanel({
     high: number;
     low: number;
     close: number;
+    ma5?: number;
+    ma20?: number;
+    ma200?: number;
   } | null>(null);
 
   /** 늦게 도착한 차트 응답이 봉 단위·범위·종목을 덮어쓰지 않도록 */
@@ -449,6 +475,25 @@ export function PriceChartPanel({
     return mergeLiveIntoAggregatedLastBar(lwBase, liveQuote, stockCode, granularity);
   }, [lwBase, granularity, stockCode, liveQuote]);
 
+  /** 이평선은 실제 봉만 사용(분봉 Whitespace 제외), 시세 반영은 캔들과 동일 */
+  const candlesForMa = useMemo((): CandlestickData<UTCTimestamp>[] => {
+    if (granularity === "minute") {
+      return stockCode ? mergeLiveMinuteBar(lwBase, liveQuote, stockCode) : lwBase;
+    }
+    if (!stockCode) return lwBase;
+    return mergeLiveIntoAggregatedLastBar(lwBase, liveQuote, stockCode, granularity);
+  }, [lwBase, granularity, stockCode, liveQuote]);
+
+  const smaData = useMemo(() => {
+    const sorted = [...candlesForMa].sort((a, b) => Number(a.time) - Number(b.time));
+    const pts = sorted.map((c) => ({ time: c.time, close: c.close }));
+    return {
+      ma5: computeSma(pts, 5),
+      ma20: computeSma(pts, 20),
+      ma200: computeSma(pts, 200),
+    };
+  }, [candlesForMa]);
+
   /** 봉 개수가 늘 때마다 차트를 재생성하면 fitContent()로 확대/스크롤 상태가 풀리므로, 데이터 유무(0↔1+)만 본다 */
   const hasChartData = lwData.length > 0;
 
@@ -461,6 +506,7 @@ export function PriceChartPanel({
       chartRef.current?.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      maSeriesRef.current = { ma5: null, ma20: null, ma200: null };
       userAdjustedRangeRef.current = false;
       prevDataLenRef.current = 0;
       setHoverBar(null);
@@ -530,7 +576,21 @@ export function PriceChartPanel({
         wickDownColor: "#2196f3",
         priceFormat: { type: "price", precision: 0, minMove: 1 },
       }) as ISeriesApi<"Candlestick">;
+      const lineOpts = {
+        lineWidth: 2 as const,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+        priceFormat: { type: "price" as const, precision: 0, minMove: 1 },
+      };
+      const ma5 = chart.addSeries(mod.LineSeries, { ...lineOpts, color: "#f6c344", title: "5" });
+      const ma20 = chart.addSeries(mod.LineSeries, { ...lineOpts, color: "#29b6f6", title: "20" });
+      const ma200 = chart.addSeries(mod.LineSeries, { ...lineOpts, color: "#ab47bc", title: "200" });
+      maSeriesRef.current = { ma5, ma20, ma200 };
       series.setData(lwData);
+      ma5.setData(smaData.ma5);
+      ma20.setData(smaData.ma20);
+      ma200.setData(smaData.ma200);
       showRecentBarsByDefault(chart, lwData.length, 500);
       chartRef.current = chart;
       seriesRef.current = series;
@@ -548,6 +608,12 @@ export function PriceChartPanel({
       };
 
       const onCrosshairMove = (param: MouseEventParams) => {
+        const lineVal = (s: ISeriesApi<"Line"> | null): number | undefined => {
+          if (!s) return undefined;
+          const d = param.seriesData.get(s) as LineData | undefined;
+          const v = d && typeof d === "object" && "value" in d ? Number((d as LineData).value) : NaN;
+          return Number.isFinite(v) ? v : undefined;
+        };
         if (param.point === undefined || param.time === undefined) {
           setHoverBar(null);
           return;
@@ -564,6 +630,9 @@ export function PriceChartPanel({
           high: o.high,
           low: o.low,
           close: o.close,
+          ma5: lineVal(ma5),
+          ma20: lineVal(ma20),
+          ma200: lineVal(ma200),
         });
       };
       chart.subscribeCrosshairMove(onCrosshairMove);
@@ -584,6 +653,7 @@ export function PriceChartPanel({
       chartRef.current?.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      maSeriesRef.current = { ma5: null, ma20: null, ma200: null };
       userAdjustedRangeRef.current = false;
       prevDataLenRef.current = 0;
       setHoverBar(null);
@@ -593,7 +663,8 @@ export function PriceChartPanel({
   useEffect(() => {
     const chart = chartRef.current;
     const series = seriesRef.current;
-    if (lwData.length === 0 || !chart || !series) return;
+    const ma = maSeriesRef.current;
+    if (lwData.length === 0 || !chart || !series || !ma.ma5 || !ma.ma20 || !ma.ma200) return;
     const prevLen = prevDataLenRef.current;
     prevDataLenRef.current = lwData.length;
     const grewFromTinyToMany = prevLen <= 5 && lwData.length - prevLen >= 50;
@@ -601,12 +672,18 @@ export function PriceChartPanel({
       (!userAdjustedRangeRef.current && prevLen <= 2 && lwData.length > prevLen) || grewFromTinyToMany;
     if (shouldAutoFitEarly) {
       series.setData(lwData);
+      ma.ma5.setData(smaData.ma5);
+      ma.ma20.setData(smaData.ma20);
+      ma.ma200.setData(smaData.ma200);
       showRecentBarsByDefault(chart, lwData.length, 500);
       return;
     }
     const ts = chart.timeScale();
     const vis = ts.getVisibleRange();
     series.setData(lwData);
+    ma.ma5.setData(smaData.ma5);
+    ma.ma20.setData(smaData.ma20);
+    ma.ma200.setData(smaData.ma200);
     if (vis) {
       requestAnimationFrame(() => {
         try {
@@ -616,7 +693,7 @@ export function PriceChartPanel({
         }
       });
     }
-  }, [lwData]);
+  }, [lwData, smaData]);
 
   return (
     <div style={{ minHeight: 200 }}>
@@ -702,6 +779,19 @@ export function PriceChartPanel({
         시세는 약 1초 간격으로 저장됩니다. 분봉은 빈 분을 건너뛰어 표시될 수 있고, 봉 개수는 DB에 저장된 기간에
         따라 줄어들 수 있습니다.
       </p>
+      {lwData.length > 0 ? (
+        <p style={{ margin: "0 0 8px", fontSize: 11, color: "var(--muted-foreground)", lineHeight: 1.45 }}>
+          <span style={{ fontWeight: 600, color: "var(--text)" }}>이동평균(종가)</span>{" "}
+          <span style={{ color: "#f6c344" }}>5</span>
+          {" · "}
+          <span style={{ color: "#29b6f6" }}>20</span>
+          {" · "}
+          <span style={{ color: "#ab47bc" }}>200</span>
+          {granularity === "day"
+            ? " — 일봉이면 통상의 5·20·200일선과 동일"
+            : " — 선택한 봉 단위 기준 5·20·200봉"}
+        </p>
+      ) : null}
       {err ? <div style={{ color: "var(--down)", fontSize: 12 }}>{err}</div> : null}
       {loading && !err ? (
         <div
@@ -741,8 +831,31 @@ export function PriceChartPanel({
                 {" · "}
                 시 {hoverBar.open.toLocaleString("ko-KR")} · 고 {hoverBar.high.toLocaleString("ko-KR")} · 저{" "}
                 {hoverBar.low.toLocaleString("ko-KR")} · 종 {hoverBar.close.toLocaleString("ko-KR")}
+                {hoverBar.ma5 != null ||
+                hoverBar.ma20 != null ||
+                hoverBar.ma200 != null ? (
+                  <>
+                    {" · "}
+                    {hoverBar.ma5 != null ? (
+                      <span style={{ color: "#f6c344" }}>5 {hoverBar.ma5.toLocaleString("ko-KR")}</span>
+                    ) : null}
+                    {hoverBar.ma5 != null && hoverBar.ma20 != null ? " · " : null}
+                    {hoverBar.ma20 != null ? (
+                      <span style={{ color: "#29b6f6" }}>20 {hoverBar.ma20.toLocaleString("ko-KR")}</span>
+                    ) : null}
+                    {hoverBar.ma20 != null && hoverBar.ma200 != null ? " · " : null}
+                    {hoverBar.ma5 != null && hoverBar.ma20 == null && hoverBar.ma200 != null ? " · " : null}
+                    {hoverBar.ma200 != null ? (
+                      <span style={{ color: "#ab47bc" }}>200 {hoverBar.ma200.toLocaleString("ko-KR")}</span>
+                    ) : null}
+                  </>
+                ) : null}
               </>
-            ) : <span aria-hidden style={{ visibility: "hidden" }}>시 000 · 고 000 · 저 000 · 종 000</span>}
+            ) : (
+              <span aria-hidden style={{ visibility: "hidden" }}>
+                시 000 · 고 000 · 저 000 · 종 000
+              </span>
+            )}
           </div>
         </>
       ) : null}

@@ -10,6 +10,8 @@ export const StockCreateSchema = z.object({
     .max(20)
     .transform((c) => normalizeKrxStockCode(c)),
   name: z.string().min(1).max(200),
+  /** 코스피·코스닥 등. 비우면 등록 시 네이버에서 조회해 저장 */
+  market: z.string().trim().min(1).max(40).optional().nullable(),
   industryMajorCode: z.string().trim().min(1).max(20).optional().nullable(),
   searchAlias: z.string().max(2000).optional().nullable(),
   isActive: z.boolean().optional(),
@@ -41,6 +43,7 @@ export const StockUpdateSchema = z.object({
     .transform((c) => normalizeKrxStockCode(c))
     .optional(),
   name: z.string().min(1).max(200).optional(),
+  market: z.string().trim().min(1).max(40).optional().nullable(),
   searchAlias: z.string().max(2000).optional().nullable(),
   isActive: z.boolean().optional(),
 });

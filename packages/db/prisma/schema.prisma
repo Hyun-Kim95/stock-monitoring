@@ -16,6 +16,8 @@ model Stock {
   id            String   @id @default(uuid())
   code          String   @unique @map("stock_code")
   name          String   @map("stock_name")
+  /** 코스피·코스닥·코넥스 등 표시용 (네이버 integration nameKor) */
+  market        String?  @map("market")
   industryMajorCode String? @map("industry_major_code")
   searchAlias   String?  @map("search_alias")
   isActive      Boolean  @default(true) @map("is_active")

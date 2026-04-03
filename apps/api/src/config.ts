@@ -26,6 +26,8 @@ const EnvSchema = z.object({
   /** Redis (선택): 분봉 캐시/락 공유. 미설정 시 인메모리 동작 */
   REDIS_URL: z.string().optional(),
   REDIS_KEY_PREFIX: z.string().optional(),
+  /** 1/true/yes 이면 Redis 미사용(연결 시도 없음). 서버 꺼짐 시 .env로 끄기 */
+  REDIS_DISABLED: z.string().optional(),
   /**
    * 서버 기동 시 stock_quote_history 정리.
    * none=안 함, today=오늘 KST 0시(당일) 데이터만 삭제, today_8kst=오늘 KST 08:00 미만 전부 삭제(전일·당일 새벽 제거), all=전체 TRUNCATE

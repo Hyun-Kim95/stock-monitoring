@@ -15,6 +15,7 @@ type StockApi = {
   id: string;
   code: string;
   name: string;
+  market: string | null;
   industryMajorCode: string | null;
   industryMajorName: string | null;
   searchAlias: string | null;
@@ -266,6 +267,9 @@ export function DashboardPage() {
               <thead>
                 <tr>
                   <th>종목</th>
+                  <th style={{ width: 52, textAlign: "center" }} title="KOSPI / KOSDAQ / KONEX">
+                    시장
+                  </th>
                   <th style={{ width: 56, textAlign: "center" }} title="넥스트(NXT) 시간외 거래 시세 조회 가능 여부(KIS)">
                     NXT
                   </th>
@@ -300,7 +304,7 @@ export function DashboardPage() {
               <tbody>
                 {stocksLoading && stocks.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ padding: 24, textAlign: "center", color: "var(--muted-foreground)" }}>
+                    <td colSpan={9} style={{ padding: 24, textAlign: "center", color: "var(--muted-foreground)" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                         <span className="loading-dot" aria-hidden />
                         종목 목록을 불러오는 중…
@@ -325,6 +329,9 @@ export function DashboardPage() {
                       <td>
                         <div style={{ fontWeight: 600 }}>{s.name}</div>
                         <div style={{ color: "var(--muted-foreground)", fontSize: 11 }}>{s.code}</div>
+                      </td>
+                      <td style={{ textAlign: "center", fontSize: 11, color: "var(--muted-foreground)" }}>
+                        {s.market ?? "—"}
                       </td>
                       <td style={{ textAlign: "center", verticalAlign: "middle" }}>
                         {s.nxEligible === true ? (

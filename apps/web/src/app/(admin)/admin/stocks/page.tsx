@@ -7,6 +7,8 @@ type Stock = {
   id: string;
   code: string;
   name: string;
+  /** KOSPI, KOSDAQ 등 */
+  market: string | null;
   industryMajorCode: string | null;
   industryMajorName: string | null;
   searchAlias: string | null;
@@ -32,6 +34,7 @@ export default function AdminStocksPage() {
   const [name, setName] = useState("");
   const [industryMajorCode, setIndustryMajorCode] = useState("");
   const [industryMajorName, setIndustryMajorName] = useState("");
+  const [market, setMarket] = useState("");
   const [alias, setAlias] = useState("");
   const [themesText, setThemesText] = useState("");
   const [selectedThemeIds, setSelectedThemeIds] = useState<Set<string>>(new Set());
@@ -77,6 +80,7 @@ export default function AdminStocksPage() {
   function selectSearchItem(item: StockSearchItem) {
     setCode(item.code);
     setName(item.name);
+    setMarket(item.market ?? "");
     setIndustryMajorCode(item.industryMajorCode ?? "");
     setIndustryMajorName(item.industryMajorName ?? "");
     const byName = new Map(themes.map((t) => [t.name.toLowerCase(), t.id]));
@@ -93,6 +97,7 @@ export default function AdminStocksPage() {
   function selectExistingStock(s: Stock) {
     setCode(s.code);
     setName(s.name);
+    setMarket(s.market ?? "");
     setIndustryMajorCode(s.industryMajorCode ?? "");
     setIndustryMajorName(s.industryMajorName ?? "");
     setAlias(s.searchAlias ?? "");
@@ -123,6 +128,7 @@ export default function AdminStocksPage() {
       await apiSend("/stocks", "POST", {
         code,
         name,
+        market: market.trim() || null,
         industryMajorCode: industryMajorCode || null,
         searchAlias: alias || null,
         isActive: true,
@@ -130,6 +136,7 @@ export default function AdminStocksPage() {
       });
       setCode("");
       setName("");
+      setMarket("");
       setIndustryMajorCode("");
       setIndustryMajorName("");
       setAlias("");
@@ -220,6 +227,14 @@ export default function AdminStocksPage() {
             <input value={name} onChange={(e) => setName(e.target.value)} required />
           </div>
           <div className="form-row">
+            <label>시장</label>
+            <input
+              value={market}
+              onChange={(e) => setMarket(e.target.value)}
+              placeholder="KOSPI / KOSDAQ (비우면 등록 시 자동 조회)"
+            />
+          </div>
+          <div className="form-row">
             <label>업종(산업대분류)</label>
             <input value={industryMajorName} readOnly placeholder="종목 검색 후 자동 입력" />
             {industryMajorCode ? (
@@ -276,6 +291,7 @@ export default function AdminStocksPage() {
                 <tr>
                   <th>코드</th>
                   <th>이름</th>
+                  <th>시장</th>
                   <th>별칭</th>
                   <th>산업대분류</th>
                   <th />
@@ -286,6 +302,7 @@ export default function AdminStocksPage() {
                   <tr key={s.id} style={{ cursor: "pointer" }} onClick={() => selectExistingStock(s)}>
                     <td>{s.code}</td>
                     <td>{s.name}</td>
+                    <td style={{ fontSize: 12 }}>{s.market ?? "—"}</td>
                     <td style={{ color: "var(--muted-foreground)", fontSize: 12 }}>{s.searchAlias ?? "—"}</td>
                     <td style={{ color: "var(--muted-foreground)", fontSize: 12 }} title={s.industryMajorCode ?? undefined}>
                       {s.industryMajorName ?? "—"}

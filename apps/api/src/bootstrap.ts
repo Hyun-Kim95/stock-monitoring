@@ -205,14 +205,15 @@ export async function createApiApplication(env: Env): Promise<{
       lastBroadcastMarketStatus = "시세·히스토리 준비 중…";
       await reloadMarketFromDb({ loading: true });
       const nxSnap = () => market.getNxEligibilityByCode?.() ?? {};
-      void runStartupMinuteChartPrewarmQueue(prisma, env, { getNxEligibilityByCode: nxSnap }).catch((e) => {
-        logError("runStartupMinuteChartPrewarmQueue failed", { err: String(e) });
-      });
+      /** 전 종목 기동 백필·DB 부하가 끝난 뒤에만 prewarm 실행 — 차트 API와 KIS·Prisma 경쟁으로 수 분 지연 나는 것 방지 */
       try {
         await runStartupQuoteHistoryPrep(prisma, env, { getNxEligibilityByCode: nxSnap });
       } catch (e) {
         logError("runStartupQuoteHistoryPrep failed", { err: String(e) });
       }
+      void runStartupMinuteChartPrewarmQueue(prisma, env, { getNxEligibilityByCode: nxSnap }).catch((e) => {
+        logError("runStartupMinuteChartPrewarmQueue failed", { err: String(e) });
+      });
     } finally {
       marketStartupLoading = false;
       broadcastJson({

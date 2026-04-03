@@ -28,7 +28,7 @@ netstat -ano | ForEach-Object {
 
 foreach ($procId in $pids) {
   $p = Get-CimInstance Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue
-  if (-not $p?.CommandLine) { continue }
+  if (-not $p -or -not $p.CommandLine) { continue }
   $cmd = $p.CommandLine
   if ($cmd -notmatch "node") { continue }
   if ($cmd -match $escProjectWin -or $cmd -match $escProject) { continue }

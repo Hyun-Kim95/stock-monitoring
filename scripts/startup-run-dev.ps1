@@ -7,10 +7,11 @@ $projectDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $log = Join-Path $env:TEMP "stockMonitoring-run-dev.log"
 
 function Resolve-Npm {
+  # Windows PowerShell 5.1 호환(시작 프로그램 기본 powershell.exe)
   $cmd = Get-Command npm.cmd -ErrorAction SilentlyContinue
-  if ($cmd?.Path) { return $cmd.Path }
+  if ($cmd -and $cmd.Path) { return $cmd.Path }
   $cmd2 = Get-Command npm -ErrorAction SilentlyContinue
-  if ($cmd2?.Path) { return $cmd2.Path }
+  if ($cmd2 -and $cmd2.Path) { return $cmd2.Path }
   $candidates = @(
     "$env:ProgramFiles\nodejs\npm.cmd",
     "$env:ProgramFiles(x86)\nodejs\npm.cmd",
@@ -22,6 +23,11 @@ function Resolve-Npm {
 }
 
 try {
+  if ($StartupMode) {
+    Add-Content -Path $log -Value "[$(Get-Date -Format s)] startup-run-dev: begin (StartupMode)"
+    Start-Sleep -Seconds 12
+  }
+
   $npm = Resolve-Npm
   if (-not $npm) {
     Add-Content -Path $log -Value "[$(Get-Date -Format s)] startup-run-dev: npm not found"

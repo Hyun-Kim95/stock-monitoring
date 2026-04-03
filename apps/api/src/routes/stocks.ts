@@ -8,6 +8,7 @@ import type { preHandlerHookHandler } from "fastify";
 import type { Env } from "../config.js";
 import { sendZodError } from "../lib/errors.js";
 import { logError } from "../lib/logger.js";
+import { fetchNaverStockIntegrationMeta, toMarketLabelEn } from "../lib/naver-stock-integration.js";
 import { redisDeleteByPrefix, redisGetJson, redisSetJson } from "../lib/redis.js";
 import {
   getNaverIndustryMajorName,
@@ -24,6 +25,37 @@ import {
 import type { ChartGranularity, ChartRange } from "@stock-monitoring/shared";
 import { fetchChart } from "../modules/history/quote-history.js";
 
+/** DB에 market이 비어 있으면 네이버 basic API로 채워 저장 (integration에는 시장 필드 없음) */
+async function backfillMissingStockMarkets(
+  prisma: PrismaClient,
+  rows: { id: string; code: string; market: string | null }[],
+): Promise<Map<string, string | null>> {
+  const byId = new Map(rows.map((r) => [r.id, r.market] as const));
+  const missing = rows.filter((r) => !(r.market?.trim() ?? ""));
+  const chunkSize = 4;
+  for (let i = 0; i < missing.length; i += chunkSize) {
+    const part = missing.slice(i, i + chunkSize);
+    await Promise.all(
+      part.map(async (r) => {
+        try {
+          const meta = await fetchNaverStockIntegrationMeta(r.code);
+          const m = toMarketLabelEn(meta.market);
+          if (m) {
+            await prisma.stock.update({ where: { id: r.id }, data: { market: m } });
+            byId.set(r.id, m);
+          }
+        } catch (e) {
+          logError("backfillMissingStockMarkets", { code: r.code, err: String(e) });
+        }
+      }),
+    );
+    if (i + chunkSize < missing.length) {
+      await new Promise((res) => setTimeout(res, 120));
+    }
+  }
+  return byId;
+}
+
 type Ctx = {
   prisma: PrismaClient;
   adminPre: preHandlerHookHandler;
@@ -31,6 +63,22 @@ type Ctx = {
   env: Env;
   getNxEligibilityByCode: () => Record<string, boolean | null>;
 };
+
+/** 클릭한 종목 차트: 백필을 잠깐 기다렸다가 먼저 그릴 데이터를 주고, 전체 백필은 이후에도 계속됨 */
+const CHART_MINUTE_BACKFILL_BUDGET_MS = 55_000;
+const CHART_HISTORY_BACKFILL_BUDGET_MS = 45_000;
+
+function raceWithBudget(p: Promise<unknown>, budgetMs: number): Promise<void> {
+  return Promise.race([
+    p.then(
+      () => undefined,
+      () => undefined,
+    ),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, budgetMs);
+    }),
+  ]);
+}
 
 export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
   const { prisma, adminPre, reloadMarket, env, getNxEligibilityByCode } = ctx;
@@ -48,20 +96,6 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
   >();
   const MINUTE_CHART_CACHE_TTL_MS = 2_500;
 
-
-  async function fetchIndustryMajorCodeFromNaver(code: string): Promise<string | null> {
-    try {
-      const res = await fetch(`https://m.stock.naver.com/api/stock/${encodeURIComponent(code)}/integration`, {
-        headers: { Accept: "application/json", "User-Agent": "stock-monitoring/1.0" },
-      });
-      if (!res.ok) return null;
-      const json = (await res.json()) as { industryCode?: unknown };
-      const raw = String(json.industryCode ?? "").trim();
-      return raw ? raw : null;
-    } catch {
-      return null;
-    }
-  }
 
   async function upsertThemeByName(tx: Tx, rawName: string, description: string | null) {
     const name = normalizeIndustryMajorLabel(rawName);
@@ -144,21 +178,26 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
       }
       const linkedIndustryByCode = new Map(linked.map((s) => [s.code, s.industryMajorCode ?? null]));
       const industryByCode = new Map<string, string | null>();
+      const integrationMarketByCode = new Map<string, string | null>();
       await Promise.all(
         codes.map(async (code) => {
-          industryByCode.set(code, await fetchIndustryMajorCodeFromNaver(code));
+          const meta = await fetchNaverStockIntegrationMeta(code);
+          industryByCode.set(code, meta.industryMajorCode);
+          integrationMarketByCode.set(code, meta.market);
         }),
       );
       const itemsRaw = baseItems.map((x) => ({
         ...x,
         themeNames: themeNamesByCode.get(x.code) ?? [],
         industryMajorCode: linkedIndustryByCode.get(x.code) ?? industryByCode.get(x.code) ?? null,
+        market: integrationMarketByCode.get(x.code) ?? x.market,
       }));
       const nameByIndustry = await getNaverIndustryMajorNames(itemsRaw.map((x) => x.industryMajorCode));
       const items = itemsRaw.map((x) => {
         const ic = x.industryMajorCode?.trim() ?? "";
         return {
           ...x,
+          market: toMarketLabelEn(x.market),
           industryMajorName: ic ? (nameByIndustry.get(ic) ?? null) : null,
         };
       });
@@ -176,6 +215,10 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
         themeMaps: { include: { theme: true } },
       },
     });
+    const marketById = await backfillMissingStockMarkets(
+      prisma,
+      rows.map((r) => ({ id: r.id, code: r.code, market: r.market })),
+    );
     const nameByIndustry = await getNaverIndustryMajorNames(rows.map((r) => r.industryMajorCode));
     const nxMap = getNxEligibilityByCode();
     return {
@@ -185,6 +228,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
           id: s.id,
           code: s.code,
           name: s.name,
+          market: toMarketLabelEn(marketById.get(s.id) ?? s.market),
           industryMajorCode: s.industryMajorCode,
           industryMajorName: ic ? (nameByIndustry.get(ic) ?? null) : null,
           searchAlias: s.searchAlias,
@@ -258,17 +302,15 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
           void p.catch((e) => {
             logError("maybeBackfillKisMinuteToday failed", { stockCode: stock.code, err: String(e) });
           });
-          try {
-            await p;
-          } finally {
+          void p.finally(async () => {
             minuteBackfillInProgressByCode.set(stock.code, false);
-            // 백필 완료 직후에는 기존(부족한) 분봉 캐시를 쓰지 않도록 해당 종목 minute 캐시를 제거
             const prefix = `${stock.code}|minute|`;
             for (const k of minuteChartCache.keys()) {
               if (k.startsWith(prefix)) minuteChartCache.delete(k);
             }
             await redisDeleteByPrefix(`chart:minute:${prefix}`);
-          }
+          });
+          await raceWithBudget(p, CHART_MINUTE_BACKFILL_BUDGET_MS);
         } else {
           // 이미 당일 분봉 커버리지가 충분하면 즉시 응답하고, 누락 보강은 백그라운드로 진행한다.
           void startOrJoinKisMinuteBackfillToday(prisma, env, stock.code, {
@@ -284,9 +326,15 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
           range,
         ).catch(() => false);
         if (!enough) {
-          await maybeBackfillKisChartHistory(prisma, env, stock.code);
+          const bh = maybeBackfillKisChartHistory(prisma, env, stock.code);
+          void bh.catch((e) => {
+            logError("maybeBackfillKisChartHistory failed", { stockCode: stock.code, err: String(e) });
+          });
+          await raceWithBudget(bh, CHART_HISTORY_BACKFILL_BUDGET_MS);
         } else {
-          void maybeBackfillKisChartHistory(prisma, env, stock.code);
+          void maybeBackfillKisChartHistory(prisma, env, stock.code).catch((e) => {
+            logError("maybeBackfillKisChartHistory failed", { stockCode: stock.code, err: String(e) });
+          });
         }
       }
     }
@@ -356,11 +404,21 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     const ic = s.industryMajorCode?.trim() ?? "";
     const industryMajorName = ic ? await getNaverIndustryMajorName(ic) : null;
+    let market = toMarketLabelEn(s.market);
+    if (!market) {
+      const meta = await fetchNaverStockIntegrationMeta(s.code);
+      const m = toMarketLabelEn(meta.market);
+      if (m) {
+        await prisma.stock.update({ where: { id: s.id }, data: { market: m } });
+        market = m;
+      }
+    }
     return {
       stock: {
         id: s.id,
         code: s.code,
         name: s.name,
+        market,
         industryMajorCode: s.industryMajorCode,
         industryMajorName,
         searchAlias: s.searchAlias,
@@ -376,6 +434,11 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     const parsed = StockCreateSchema.safeParse(request.body);
     if (!parsed.success) return sendZodError(reply, parsed.error);
     const b = parsed.data;
+    let marketResolved = toMarketLabelEn(b.market?.trim() || null);
+    if (!marketResolved) {
+      const meta = await fetchNaverStockIntegrationMeta(b.code);
+      marketResolved = toMarketLabelEn(meta.market);
+    }
     const willBeActive = b.isActive !== false;
     if (willBeActive) {
       const max = await getMaxActiveStocks(prisma);
@@ -395,6 +458,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
           data: {
             code: b.code,
             name: b.name,
+            market: marketResolved,
             industryMajorCode: b.industryMajorCode ?? null,
             searchAlias: b.searchAlias ?? null,
             isActive: b.isActive ?? true,
@@ -447,8 +511,11 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     try {
       const updated = await prisma.$transaction(async (tx) => {
-        const { code, ...rest } = parsed.data;
-        const data = code !== undefined ? { ...rest, code } : rest;
+        const { code, market, ...rest } = parsed.data;
+        const data =
+          code !== undefined
+            ? { ...rest, code, ...(market !== undefined ? { market: market === null ? null : toMarketLabelEn(market) } : {}) }
+            : { ...rest, ...(market !== undefined ? { market: market === null ? null : toMarketLabelEn(market) } : {}) };
         const row = await tx.stock.update({
           where: { id },
           data,

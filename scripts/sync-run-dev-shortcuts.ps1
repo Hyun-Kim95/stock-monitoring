@@ -8,7 +8,17 @@ $startupPs1 = Join-Path $ProjectDir "scripts\startup-run-dev.ps1"
 if (-not (Test-Path -LiteralPath $startupPs1)) {
   Write-Error "startup-run-dev.ps1을 찾을 수 없습니다: $startupPs1"
 }
-$pwsh = Join-Path $PSHOME "powershell.exe"
+# 시작 프로그램은 보통 Windows PowerShell 5.1 — 스크립트는 5.1 문법만 사용. pwsh(7+)가 있으면 우선 사용.
+$pwshCandidates = @(
+  "$env:ProgramFiles\PowerShell\7\pwsh.exe",
+  "$env:LocalAppData\Programs\PowerShell\pwsh.exe"
+)
+$pf86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+if ($pf86) {
+  $pwshCandidates += (Join-Path $pf86 "PowerShell\7\pwsh.exe")
+}
+$foundPwsh = $pwshCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+$pwsh = if ($foundPwsh) { $foundPwsh } else { Join-Path $PSHOME "powershell.exe" }
 
 $shell = New-Object -ComObject WScript.Shell
 $desktop = [Environment]::GetFolderPath("Desktop")
