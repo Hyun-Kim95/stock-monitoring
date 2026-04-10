@@ -4,6 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, apiGet } from "@/lib/api-client";
 import { formatQuotePrice } from "@/lib/format-quote";
+import {
+  CHANGE_RATE_ALERT_THRESHOLDS,
+  parseChangeRateAlertThreshold,
+  useChangeRateAlerts,
+  type ChangeRateAlertThresholdPct,
+} from "@/hooks/useChangeRateAlerts";
 import { useQuotesWebSocket } from "@/hooks/useQuotesWebSocket";
 import { PriceChartPanel } from "@/components/PriceChartPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -58,6 +64,59 @@ export function DashboardPage() {
   const [newsErr, setNewsErr] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [stocksLoading, setStocksLoading] = useState(true);
+  /** 전일대비 등락률 ±N% 구간 돌파 시 브라우저 알림 (N은 5·10·15 중 선택) */
+  const [changeRateAlertsOn, setChangeRateAlertsOn] = useState(false);
+  const [alertThresholdPct, setAlertThresholdPct] = useState<ChangeRateAlertThresholdPct>(10);
+  const [changeRateAlertErr, setChangeRateAlertErr] = useState<string | null>(null);
+
+  useChangeRateAlerts(quotes, { enabled: changeRateAlertsOn, threshold: alertThresholdPct });
+
+  useEffect(() => {
+    try {
+      setAlertThresholdPct(parseChangeRateAlertThreshold(localStorage.getItem("dashboard.changeRateAlertThreshold")));
+      if (localStorage.getItem("dashboard.changeRateAlerts") !== "1") return;
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        setChangeRateAlertsOn(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleChangeRateAlerts = useCallback(async () => {
+    setChangeRateAlertErr(null);
+    if (changeRateAlertsOn) {
+      setChangeRateAlertsOn(false);
+      try {
+        localStorage.setItem("dashboard.changeRateAlerts", "0");
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    if (typeof Notification === "undefined") {
+      setChangeRateAlertErr("이 브라우저는 알림을 지원하지 않습니다.");
+      return;
+    }
+    if (Notification.permission === "denied") {
+      setChangeRateAlertErr("브라우저 설정에서 이 사이트 알림을 허용해 주세요.");
+      return;
+    }
+    let perm: NotificationPermission = Notification.permission;
+    if (perm === "default") {
+      perm = await Notification.requestPermission();
+    }
+    if (perm !== "granted") {
+      setChangeRateAlertErr("알림 권한이 필요합니다.");
+      return;
+    }
+    setChangeRateAlertsOn(true);
+    try {
+      localStorage.setItem("dashboard.changeRateAlerts", "1");
+    } catch {
+      /* ignore */
+    }
+  }, [changeRateAlertsOn]);
 
   const refreshStocks = useCallback(async () => {
     setStocksLoading(true);
@@ -236,6 +295,49 @@ export function DashboardPage() {
             style={{ minWidth: 200 }}
           />
           <ThemeToggle />
+          <div
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}
+            title={`전일 대비 등락률이 +${alertThresholdPct}% 또는 −${alertThresholdPct}%를 넘을 때 알림을 보냅니다. 상·하 방향 모두 동일 기준입니다. 같은 구간에서는 한 번만 울리며, 등락률이 각각 ${alertThresholdPct - 1}%·−${alertThresholdPct - 1}% 쪽으로 충분히 되돌아온 뒤 다시 ±${alertThresholdPct}%를 넘으면 그때 다시 알립니다.`}
+          >
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                cursor: "pointer",
+                userSelect: "none",
+              }}
+            >
+              <input type="checkbox" checked={changeRateAlertsOn} onChange={() => void toggleChangeRateAlerts()} />
+              등락률 알림
+            </label>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--muted-foreground)" }}>
+              기준
+              <select
+                value={alertThresholdPct}
+                onChange={(e) => {
+                  const v = parseChangeRateAlertThreshold(e.target.value);
+                  setAlertThresholdPct(v);
+                  try {
+                    localStorage.setItem("dashboard.changeRateAlertThreshold", String(v));
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+                style={{ fontSize: 12, padding: "2px 6px" }}
+                aria-label="등락률 알림 기준(상·하 동일)"
+              >
+                {CHANGE_RATE_ALERT_THRESHOLDS.map((t) => (
+                  <option key={t} value={t}>
+                    ±{t}%
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {changeRateAlertErr ? (
+            <span style={{ fontSize: 11, color: "var(--down)", maxWidth: 200 }}>{changeRateAlertErr}</span>
+          ) : null}
           <Link
             href="/admin/stocks"
             className="btn btn-secondary"
