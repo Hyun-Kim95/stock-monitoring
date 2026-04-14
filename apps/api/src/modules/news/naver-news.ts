@@ -91,6 +91,7 @@ export async function fetchNaverNews(
     out.push({
       id: link,
       title: stripHtml(it.title ?? "").trim() || "(제목 없음)",
+      description: stripHtml(it.description ?? "").trim() || null,
       source: "네이버 뉴스",
       publishedAt: parsePubDate(it.pubDate),
       url: link,

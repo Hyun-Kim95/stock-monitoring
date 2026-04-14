@@ -46,6 +46,9 @@ const GRAN_LABELS: Record<Granularity, string> = {
   year: "년",
 };
 
+/** 분봉: 팬/줌 등 조작 후 이 시간(ms) 동안 최신 봉 자동 추적 안 함(매 조작마다 시각 갱신) */
+const MINUTE_LATEST_FOLLOW_SUPPRESS_MS = 10_000;
+
 function toLwCandles(rows: ChartApi["candles"]): CandlestickData<UTCTimestamp>[] {
   return rows.map((r) => ({
     time: Math.floor(new Date(r.t).getTime() / 1000) as UTCTimestamp,
@@ -396,10 +399,24 @@ export function PriceChartPanel({
   const fetchSeqRef = useRef(0);
   /** 분봉 soft polling 중복 요청 방지 */
   const minuteSoftInFlightRef = useRef(false);
-  /** 사용자가 직접 줌/스크롤한 뒤에만 가시 범위를 고정 유지 */
+  /** 비분봉: 사용자가 줌/스크롤한 뒤 초기 자동 맞춤(shouldAutoFitEarly) 억제 */
   const userAdjustedRangeRef = useRef(false);
+  /**
+   * 분봉: 이 시각(ms) 이전까지는 최신 봉 자동 추적 안 함.
+   * `Date.now() < until` 이 억제. 0이면 억제 없음(차트 막 생성·미조작).
+   * (과거 `lastInteraction` 뺄셈은 last=0일 때 항상 억제 실패하는 버그가 있었음.)
+   */
+  const minuteViewportSuppressFollowUntilRef = useRef(0);
+  /** setData·초기화 등 코드가 timeScale 범위를 바꿀 때 — 구독 콜백에서 사용자 조작으로 치지 않음 */
+  const isProgrammaticTimeRangeChangeRef = useRef(false);
   /** 이전 데이터 길이(초기 소량 캔들 상태 판별용) */
   const prevDataLenRef = useRef(0);
+
+  const bumpMinuteViewportSuppress = () => {
+    minuteViewportSuppressFollowUntilRef.current = Date.now() + MINUTE_LATEST_FOLLOW_SUPPRESS_MS;
+  };
+
+  const isMinuteLatestFollowSuppressed = () => Date.now() < minuteViewportSuppressFollowUntilRef.current;
 
   const load = useCallback(async (opts?: { soft?: boolean }) => {
     const soft = opts?.soft === true;
@@ -508,6 +525,7 @@ export function PriceChartPanel({
       seriesRef.current = null;
       maSeriesRef.current = { ma5: null, ma20: null, ma200: null };
       userAdjustedRangeRef.current = false;
+      minuteViewportSuppressFollowUntilRef.current = 0;
       prevDataLenRef.current = 0;
       setHoverBar(null);
       return;
@@ -516,6 +534,7 @@ export function PriceChartPanel({
     let cancelled = false;
     let ro: ResizeObserver | null = null;
     let unsubCrosshair: (() => void) | null = null;
+    let unsubLogicalRange: (() => void) | null = null;
     let removeUserAdjustListeners: (() => void) | null = null;
 
     void import("lightweight-charts").then((mod) => {
@@ -587,24 +606,48 @@ export function PriceChartPanel({
       const ma20 = chart.addSeries(mod.LineSeries, { ...lineOpts, color: "#29b6f6", title: "20" });
       const ma200 = chart.addSeries(mod.LineSeries, { ...lineOpts, color: "#ab47bc", title: "200" });
       maSeriesRef.current = { ma5, ma20, ma200 };
+      isProgrammaticTimeRangeChangeRef.current = true;
       series.setData(lwData);
       ma5.setData(smaData.ma5);
       ma20.setData(smaData.ma20);
       ma200.setData(smaData.ma200);
       showRecentBarsByDefault(chart, lwData.length, 500);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          isProgrammaticTimeRangeChangeRef.current = false;
+        });
+      });
+
       chartRef.current = chart;
       seriesRef.current = series;
       userAdjustedRangeRef.current = false;
+      minuteViewportSuppressFollowUntilRef.current = 0;
       prevDataLenRef.current = lwData.length;
 
-      const markUserAdjusted = () => {
-        userAdjustedRangeRef.current = true;
+      const onLogicalRangeUserChange = () => {
+        if (isProgrammaticTimeRangeChangeRef.current) return;
+        if (granularity === "minute") {
+          bumpMinuteViewportSuppress();
+        }
       };
-      containerRef.current?.addEventListener("wheel", markUserAdjusted, { passive: true });
-      containerRef.current?.addEventListener("touchstart", markUserAdjusted, { passive: true });
+      chart.timeScale().subscribeVisibleLogicalRangeChange(onLogicalRangeUserChange);
+      unsubLogicalRange = () => {
+        chart.timeScale().unsubscribeVisibleLogicalRangeChange(onLogicalRangeUserChange);
+      };
+
+      const onViewportUserGesture = () => {
+        if (granularity === "minute") {
+          bumpMinuteViewportSuppress();
+        } else {
+          userAdjustedRangeRef.current = true;
+        }
+      };
+      /** 차트 캔버스에서 소비되는 휠도 컨테이너에서 먼저 잡기 위해 capture */
+      containerRef.current?.addEventListener("wheel", onViewportUserGesture, { passive: true, capture: true });
+      containerRef.current?.addEventListener("touchstart", onViewportUserGesture, { passive: true, capture: true });
       removeUserAdjustListeners = () => {
-        containerRef.current?.removeEventListener("wheel", markUserAdjusted);
-        containerRef.current?.removeEventListener("touchstart", markUserAdjusted);
+        containerRef.current?.removeEventListener("wheel", onViewportUserGesture, { capture: true });
+        containerRef.current?.removeEventListener("touchstart", onViewportUserGesture, { capture: true });
       };
 
       const onCrosshairMove = (param: MouseEventParams) => {
@@ -648,6 +691,7 @@ export function PriceChartPanel({
     return () => {
       cancelled = true;
       unsubCrosshair?.();
+      unsubLogicalRange?.();
       ro?.disconnect();
       removeUserAdjustListeners?.();
       chartRef.current?.remove();
@@ -655,6 +699,7 @@ export function PriceChartPanel({
       seriesRef.current = null;
       maSeriesRef.current = { ma5: null, ma20: null, ma200: null };
       userAdjustedRangeRef.current = false;
+      minuteViewportSuppressFollowUntilRef.current = 0;
       prevDataLenRef.current = 0;
       setHoverBar(null);
     };
@@ -668,32 +713,79 @@ export function PriceChartPanel({
     const prevLen = prevDataLenRef.current;
     prevDataLenRef.current = lwData.length;
     const grewFromTinyToMany = prevLen <= 5 && lwData.length - prevLen >= 50;
+    const suppressMinuteLatest = granularity === "minute" && isMinuteLatestFollowSuppressed();
     const shouldAutoFitEarly =
-      (!userAdjustedRangeRef.current && prevLen <= 2 && lwData.length > prevLen) || grewFromTinyToMany;
+      ((!userAdjustedRangeRef.current && prevLen <= 2 && lwData.length > prevLen) || grewFromTinyToMany) &&
+      !suppressMinuteLatest;
     if (shouldAutoFitEarly) {
+      isProgrammaticTimeRangeChangeRef.current = true;
       series.setData(lwData);
       ma.ma5.setData(smaData.ma5);
       ma.ma20.setData(smaData.ma20);
       ma.ma200.setData(smaData.ma200);
       showRecentBarsByDefault(chart, lwData.length, 500);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          isProgrammaticTimeRangeChangeRef.current = false;
+        });
+      });
       return;
     }
     const ts = chart.timeScale();
     const vis = ts.getVisibleRange();
+    const logicalBefore =
+      granularity === "minute" && !isMinuteLatestFollowSuppressed() ? ts.getVisibleLogicalRange() : null;
+
+    isProgrammaticTimeRangeChangeRef.current = true;
     series.setData(lwData);
     ma.ma5.setData(smaData.ma5);
     ma.ma20.setData(smaData.ma20);
     ma.ma200.setData(smaData.ma200);
-    if (vis) {
+
+    if (granularity === "minute" && !isMinuteLatestFollowSuppressed()) {
+      requestAnimationFrame(() => {
+        try {
+          if (
+            logicalBefore &&
+            Number.isFinite(logicalBefore.from) &&
+            Number.isFinite(logicalBefore.to) &&
+            logicalBefore.to > logicalBefore.from
+          ) {
+            const width = logicalBefore.to - logicalBefore.from;
+            const newTo = lwData.length - 1;
+            const newFrom = Math.max(0, newTo - width);
+            chart.timeScale().setVisibleLogicalRange({ from: newFrom, to: newTo });
+          } else {
+            showRecentBarsByDefault(chart, lwData.length, 500);
+          }
+        } catch {
+          showRecentBarsByDefault(chart, lwData.length, 500);
+        } finally {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              isProgrammaticTimeRangeChangeRef.current = false;
+            });
+          });
+        }
+      });
+    } else if (vis) {
       requestAnimationFrame(() => {
         try {
           chart.timeScale().setVisibleRange(vis);
         } catch {
           /* 새 데이터에 from/to가 없으면 라이브러리가 조정함 */
+        } finally {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              isProgrammaticTimeRangeChangeRef.current = false;
+            });
+          });
         }
       });
+    } else {
+      isProgrammaticTimeRangeChangeRef.current = false;
     }
-  }, [lwData, smaData]);
+  }, [lwData, smaData, granularity]);
 
   return (
     <div style={{ minHeight: 200 }}>

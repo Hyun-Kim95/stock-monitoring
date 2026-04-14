@@ -95,7 +95,6 @@ async function main() {
   await prisma.stockThemeMap.createMany({ data: mapRows });
 
   await prisma.newsSourceRule.deleteMany({});
-  const samsungId = stockByCode.get("005930")?.id;
   await prisma.newsSourceRule.createMany({
     data: [
       {
@@ -106,18 +105,6 @@ async function main() {
         priority: 0,
         isActive: true,
       },
-      ...(samsungId
-        ? [
-            {
-              scope: NewsRuleScope.STOCK,
-              stockId: samsungId,
-              includeKeyword: "삼성전자",
-              excludeKeyword: null,
-              priority: 10,
-              isActive: true,
-            },
-          ]
-        : []),
     ],
   });
 

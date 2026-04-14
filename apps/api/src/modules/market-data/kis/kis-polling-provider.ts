@@ -259,9 +259,12 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
     const frgnNetFromInvestor = investorNetByCode.get(code)?.value;
     const frgnNet = frgnNetFromInvestor ?? (Number.isNaN(frgnNetFromPrice) ? NaN : frgnNetFromPrice);
     const frgnPct = parseKisNumber(out.hts_frgn_ehrt ?? out.HTS_FRGN_EHRT);
+    /** DB `stocks.stock_name` 우선 — KIS HTS명은 상장사 명칭 변경 후에도 늦게 갱신되는 경우가 있음 */
+    const kisHtsName = (out.hts_kor_isnm ?? out.HTS_KOR_ISNM ?? "").trim();
+    const displayName = name.trim() || kisHtsName || code;
     return {
       symbol: code,
-      name: (out.hts_kor_isnm ?? out.HTS_KOR_ISNM ?? name).trim() || name,
+      name: displayName,
       price,
       change: Number.isNaN(change) ? 0 : change,
       changeRate: Number.isNaN(changeRate) ? 0 : changeRate,
@@ -354,7 +357,7 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
             ? `KIS 호출 한도 초과(초당 건수). .env KIS_QUOTE_REQUEST_GAP_MS(현재 ${gap}ms)를 늘리거나 market_data.poll_interval_ms를 올리세요.`
             : `KIS ${s.code} 오류: ${msg.slice(0, 120)}`;
           const prev = lastQuotes.find((q) => q.symbol === s.code);
-          if (prev) batch.push(prev);
+          if (prev) batch.push({ ...prev, name: s.name.trim() || prev.name });
         }
       }
       if (batch.length > 0) {

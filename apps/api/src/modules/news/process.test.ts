@@ -71,4 +71,45 @@ describe("applyNewsRules", () => {
     const out = applyNewsRules(base, rules, "stock-a");
     expect(out.map((x) => x.id)).toEqual(["1"]);
   });
+
+  it("includeKeyword — 제목 공백(삼성 전자)도 키워드 삼성전자와 일치", () => {
+    const items = [
+      { id: "a", title: "삼성 전자 주가", source: "s", publishedAt: "", url: "https://x/a" },
+    ];
+    const rules = [
+      {
+        scope: "STOCK" as const,
+        stockId: "s",
+        includeKeyword: "삼성전자",
+        excludeKeyword: null,
+        priority: 10,
+        isActive: true,
+      },
+    ];
+    expect(applyNewsRules(items, rules, "s")).toHaveLength(1);
+  });
+
+  it("includeKeyword — 요약(description)에 키워드 있으면 통과", () => {
+    const items = [
+      {
+        id: "a",
+        title: "코스피 마감",
+        source: "s",
+        publishedAt: "",
+        url: "https://x/a",
+        description: "삼성전자가 상승했다.",
+      },
+    ];
+    const rules = [
+      {
+        scope: "STOCK" as const,
+        stockId: "s",
+        includeKeyword: "삼성전자",
+        excludeKeyword: null,
+        priority: 10,
+        isActive: true,
+      },
+    ];
+    expect(applyNewsRules(items, rules, "s")).toHaveLength(1);
+  });
 });

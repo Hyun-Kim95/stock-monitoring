@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, apiGet, apiSend } from "@/lib/api-client";
 
@@ -30,6 +31,8 @@ export default function AdminStocksPage() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [themes, setThemes] = useState<ThemeBrief[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  /** 기존 종목 수정 시 설정. null이면 신규 등록 폼. */
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [industryMajorCode, setIndustryMajorCode] = useState("");
@@ -77,7 +80,20 @@ export default function AdminStocksPage() {
     }
   }
 
+  function resetNewStockForm() {
+    setEditingId(null);
+    setCode("");
+    setName("");
+    setMarket("");
+    setIndustryMajorCode("");
+    setIndustryMajorName("");
+    setAlias("");
+    setThemesText("");
+    setSelectedThemeIds(new Set());
+  }
+
   function selectSearchItem(item: StockSearchItem) {
+    setEditingId(null);
     setCode(item.code);
     setName(item.name);
     setMarket(item.market ?? "");
@@ -95,6 +111,7 @@ export default function AdminStocksPage() {
   }
 
   function selectExistingStock(s: Stock) {
+    setEditingId(s.id);
     setCode(s.code);
     setName(s.name);
     setMarket(s.market ?? "");
@@ -114,9 +131,20 @@ export default function AdminStocksPage() {
     });
   }
 
-  async function createStock(e: React.FormEvent) {
+  async function submitStockForm(e: React.FormEvent) {
     e.preventDefault();
     try {
+      if (editingId) {
+        await apiSend(`/stocks/${editingId}`, "PATCH", {
+          name,
+          market: market.trim() || null,
+          searchAlias: alias.trim() ? alias : null,
+          isActive: true,
+        });
+        resetNewStockForm();
+        await load();
+        return;
+      }
       const newThemeNames = themesText
         .split(",")
         .map((s) => s.trim())
@@ -134,23 +162,17 @@ export default function AdminStocksPage() {
         isActive: true,
         themeNames,
       });
-      setCode("");
-      setName("");
-      setMarket("");
-      setIndustryMajorCode("");
-      setIndustryMajorName("");
-      setAlias("");
-      setThemesText("");
-      setSelectedThemeIds(new Set());
+      resetNewStockForm();
       await load();
     } catch (ex) {
-      setErr(ex instanceof ApiError ? JSON.stringify(ex.body) : "생성 실패");
+      setErr(ex instanceof ApiError ? JSON.stringify(ex.body) : editingId ? "저장 실패" : "생성 실패");
     }
   }
 
   async function deactivate(id: string) {
     try {
       await apiSend(`/stocks/${id}`, "DELETE");
+      if (editingId === id) resetNewStockForm();
       await load();
     } catch (ex) {
       setErr(ex instanceof ApiError ? JSON.stringify(ex.body) : "비활성화 실패");
@@ -162,10 +184,24 @@ export default function AdminStocksPage() {
       {err ? <p style={{ color: "var(--down)" }}>{err}</p> : null}
 
       <div className="admin-grid">
-        <form className="panel" onSubmit={createStock} style={{ padding: 12 }}>
-          <div className="panel-h" style={{ margin: "-12px -12px 12px" }}>
-            종목 추가
+        <form className="panel" onSubmit={submitStockForm} style={{ padding: 12 }}>
+          <div
+            className="panel-h"
+            style={{ margin: "-12px -12px 12px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
+          >
+            <span>{editingId ? "종목 수정" : "종목 추가"}</span>
+            {editingId ? (
+              <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={resetNewStockForm}>
+                신규 등록으로 바꾸기
+              </button>
+            ) : null}
           </div>
+          {editingId ? (
+            <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--muted-foreground)" }}>
+              종목명을 바꿔 저장하면 이전 공식명이 검색 별칭에 자동으로 붙습니다(중복 제외). 뉴스 검색·키워드 규칙 점검은{" "}
+              <Link href="/admin/news-rules">뉴스 규칙</Link>을 참고하세요.
+            </p>
+          ) : null}
           <div className="form-row">
             <label>종목명 검색</label>
             <div style={{ display: "flex", gap: 8 }}>
@@ -220,7 +256,13 @@ export default function AdminStocksPage() {
           ) : null}
           <div className="form-row">
             <label>종목코드</label>
-            <input value={code} onChange={(e) => setCode(e.target.value)} required />
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              required={!editingId}
+              disabled={!!editingId}
+              title={editingId ? "수정 모드에서는 코드를 바꿀 수 없습니다." : undefined}
+            />
           </div>
           <div className="form-row">
             <label>종목명</label>
@@ -253,33 +295,40 @@ export default function AdminStocksPage() {
               value={themesText}
               onChange={(e) => setThemesText(e.target.value)}
               placeholder="새 테마 추가: 예) 반도체, 2차전지"
+              disabled={!!editingId}
             />
           </div>
           <div className="form-row">
             <label>기존 테마 선택</label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {themes.map((t) => {
-                const on = selectedThemeIds.has(t.id);
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => toggleTheme(t.id)}
-                    className={on ? "primary" : "btn btn-secondary"}
-                    style={{ fontSize: 12, padding: "4px 10px" }}
-                    title={on ? "선택됨" : "선택"}
-                  >
-                    {t.name}
-                  </button>
-                );
-              })}
-              {themes.length === 0 ? (
-                <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>등록된 테마가 없습니다.</span>
-              ) : null}
-            </div>
+            {editingId ? (
+              <p style={{ margin: 0, fontSize: 12, color: "var(--muted-foreground)" }}>
+                테마 연결은 <Link href="/admin/themes">테마 관리</Link>에서 변경할 수 있습니다.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {themes.map((t) => {
+                  const on = selectedThemeIds.has(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => toggleTheme(t.id)}
+                      className={on ? "primary" : "btn btn-secondary"}
+                      style={{ fontSize: 12, padding: "4px 10px" }}
+                      title={on ? "선택됨" : "선택"}
+                    >
+                      {t.name}
+                    </button>
+                  );
+                })}
+                {themes.length === 0 ? (
+                  <span style={{ fontSize: 12, color: "var(--muted-foreground)" }}>등록된 테마가 없습니다.</span>
+                ) : null}
+              </div>
+            )}
           </div>
           <button type="submit" className="primary">
-            등록
+            {editingId ? "저장" : "등록"}
           </button>
         </form>
 

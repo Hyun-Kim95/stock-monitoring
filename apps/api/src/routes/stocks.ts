@@ -15,6 +15,8 @@ import {
   getNaverIndustryMajorNames,
   normalizeIndustryMajorLabel,
 } from "../lib/naver-industry-major-name.js";
+import { trySyncStockOfficialName } from "../lib/naver-official-name-sync.js";
+import { mergeFormerOfficialNameIntoSearchAlias } from "../lib/stock-search-alias.js";
 import { countActiveStocks, getMaxActiveStocks } from "../lib/stock-limits.js";
 import {
   isHistoryCoverageFreshEnough,
@@ -282,9 +284,20 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     const rawLimit = Number(q.limit);
     const limitOverride =
       Number.isFinite(rawLimit) && rawLimit > 0 ? Math.max(10, Math.min(20_000, Math.floor(rawLimit))) : undefined;
-    const stock = await prisma.stock.findUnique({ where: { id } });
+    let stock = await prisma.stock.findUnique({ where: { id } });
     if (!stock) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
+    }
+    if (
+      await trySyncStockOfficialName(prisma, {
+        id: stock.id,
+        code: stock.code,
+        name: stock.name,
+        searchAlias: stock.searchAlias,
+      })
+    ) {
+      const again = await prisma.stock.findUnique({ where: { id } });
+      if (again) stock = again;
     }
     const provRow = await prisma.systemSetting.findUnique({
       where: { settingKey: "market_data.provider" },
@@ -395,12 +408,26 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.get("/stocks/:id", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const s = await prisma.stock.findUnique({
+    let s = await prisma.stock.findUnique({
       where: { id },
       include: { themeMaps: { include: { theme: true } } },
     });
     if (!s) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
+    }
+    if (
+      await trySyncStockOfficialName(prisma, {
+        id: s.id,
+        code: s.code,
+        name: s.name,
+        searchAlias: s.searchAlias,
+      })
+    ) {
+      const again = await prisma.stock.findUnique({
+        where: { id },
+        include: { themeMaps: { include: { theme: true } } },
+      });
+      if (again) s = again;
     }
     const ic = s.industryMajorCode?.trim() ?? "";
     const industryMajorName = ic ? await getNaverIndustryMajorName(ic) : null;
@@ -494,28 +521,52 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     const { id } = request.params as { id: string };
     const parsed = StockUpdateSchema.safeParse(request.body);
     if (!parsed.success) return sendZodError(reply, parsed.error);
-    if (parsed.data.isActive === true) {
-      const current = await prisma.stock.findUnique({ where: { id } });
-      if (current && !current.isActive) {
-        const max = await getMaxActiveStocks(prisma);
-        const n = await countActiveStocks(prisma);
-        if (n >= max) {
-          return reply.status(409).send({
-            error: {
-              code: "STOCK_LIMIT",
-              message: `활성 종목은 최대 ${max}개까지입니다. 비활성 종목을 끄거나 상한을 조정하세요.`,
-            },
-          });
-        }
+
+    const current = await prisma.stock.findUnique({ where: { id } });
+    if (!current) {
+      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
+    }
+
+    if (parsed.data.isActive === true && !current.isActive) {
+      const max = await getMaxActiveStocks(prisma);
+      const n = await countActiveStocks(prisma);
+      if (n >= max) {
+        return reply.status(409).send({
+          error: {
+            code: "STOCK_LIMIT",
+            message: `활성 종목은 최대 ${max}개까지입니다. 비활성 종목을 끄거나 상한을 조정하세요.`,
+          },
+        });
       }
     }
+
+    let finalSearchAlias: string | null | undefined;
+    if (parsed.data.name !== undefined && parsed.data.name.trim() !== current.name.trim()) {
+      const base =
+        parsed.data.searchAlias !== undefined ? parsed.data.searchAlias : current.searchAlias;
+      finalSearchAlias = mergeFormerOfficialNameIntoSearchAlias({
+        priorOfficialName: current.name,
+        baseSearchAlias: base,
+        newOfficialName: parsed.data.name,
+      });
+    } else if (parsed.data.searchAlias !== undefined) {
+      finalSearchAlias = parsed.data.searchAlias;
+    }
+
     try {
       const updated = await prisma.$transaction(async (tx) => {
-        const { code, market, ...rest } = parsed.data;
-        const data =
-          code !== undefined
-            ? { ...rest, code, ...(market !== undefined ? { market: market === null ? null : toMarketLabelEn(market) } : {}) }
-            : { ...rest, ...(market !== undefined ? { market: market === null ? null : toMarketLabelEn(market) } : {}) };
+        const { code, market, name, searchAlias: _ignoredAlias, industryMajorCode, ...rest } =
+          parsed.data;
+        const data: Prisma.StockUpdateInput = {
+          ...rest,
+          ...(code !== undefined ? { code } : {}),
+          ...(market !== undefined
+            ? { market: market === null ? null : toMarketLabelEn(market) }
+            : {}),
+          ...(name !== undefined ? { name } : {}),
+          ...(industryMajorCode !== undefined ? { industryMajorCode } : {}),
+          ...(finalSearchAlias !== undefined ? { searchAlias: finalSearchAlias } : {}),
+        };
         const row = await tx.stock.update({
           where: { id },
           data,

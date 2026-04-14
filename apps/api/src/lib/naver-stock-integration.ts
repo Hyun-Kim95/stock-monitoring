@@ -4,6 +4,8 @@
  * - basic: 상장 시장(stockExchangeType) — integration 루트에는 시장 정보가 없음
  */
 export type NaverStockIntegrationMeta = {
+  /** 네이버 종목 페이지 기준 한글 공식명(상장사 명칭 변경 반영) */
+  officialName: string | null;
   industryMajorCode: string | null;
   /** KOSPI, KOSDAQ, KONEX 등 */
   market: string | null;
@@ -36,10 +38,13 @@ export async function fetchNaverStockIntegrationMeta(stockCode: string): Promise
     ]);
 
     let industryMajorCode: string | null = null;
+    let officialName: string | null = null;
     if (intRes.ok) {
-      const j = (await intRes.json()) as { industryCode?: unknown };
+      const j = (await intRes.json()) as { industryCode?: unknown; stockName?: unknown };
       const ind = String(j.industryCode ?? "").trim();
       industryMajorCode = ind || null;
+      const nm = String(j.stockName ?? "").trim();
+      officialName = nm || null;
     }
 
     let market: string | null = null;
@@ -56,8 +61,8 @@ export async function fetchNaverStockIntegrationMeta(stockCode: string): Promise
       market = toMarketLabelEn(raw);
     }
 
-    return { industryMajorCode, market };
+    return { officialName: officialName ?? null, industryMajorCode, market };
   } catch {
-    return { industryMajorCode: null, market: null };
+    return { officialName: null, industryMajorCode: null, market: null };
   }
 }

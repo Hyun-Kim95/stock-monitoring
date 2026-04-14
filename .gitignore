@@ -27,7 +27,6 @@ coverage
 Thumbs.db
 .idea
 .vscode
-.cursor
 
 # Cursor/VS Code 로컬 히스토리(과거 .env 등이 들어갈 수 있음)
 .history

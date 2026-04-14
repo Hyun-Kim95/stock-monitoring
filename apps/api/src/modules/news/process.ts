@@ -9,6 +9,16 @@ export type NewsRuleInput = {
   isActive: boolean;
 };
 
+/** 공백·대소문자 차이를 무시하고 부분 일치 검사(예: 제목 `삼성 전자` ↔ 키워드 `삼성전자`) */
+function normalizeForKeywordMatch(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, "");
+}
+
+function haystackForRules(item: NewsItem): string {
+  const d = item.description?.trim() ?? "";
+  return normalizeForKeywordMatch(`${item.title} ${d}`);
+}
+
 /** `publishedAt`(ISO) 기준 최근 `maxAgeDays`일 이내만 유효. 파싱 불가·누락은 제외. */
 export function filterNewsPublishedWithinDays(items: NewsItem[], maxAgeDays: number): NewsItem[] {
   const ms = maxAgeDays * 24 * 60 * 60 * 1000;
@@ -52,13 +62,16 @@ export function applyNewsRules(
   const excludeRules = applicable.filter((r) => r.excludeKeyword?.trim());
 
   return items.filter((item) => {
-    const title = item.title.toLowerCase();
+    const hay = haystackForRules(item);
     for (const r of excludeRules) {
-      const k = r.excludeKeyword!.trim().toLowerCase();
-      if (title.includes(k)) return false;
+      const k = normalizeForKeywordMatch(r.excludeKeyword!.trim());
+      if (k && hay.includes(k)) return false;
     }
     if (includeRules.length > 0) {
-      const hit = includeRules.some((r) => title.includes(r.includeKeyword!.trim().toLowerCase()));
+      const hit = includeRules.some((r) => {
+        const k = normalizeForKeywordMatch(r.includeKeyword!.trim());
+        return k && hay.includes(k);
+      });
       if (!hit) return false;
     }
     return true;

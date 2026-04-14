@@ -19,6 +19,7 @@ import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerNewsRoutes } from "./routes/news.js";
 import { createQuoteHistoryRecorder } from "./modules/history/quote-history.js";
 import { runStartupMinuteChartPrewarmQueue, runStartupQuoteHistoryPrep } from "./modules/history/startup-quote-history.js";
+import { syncOfficialNamesBatch } from "./lib/naver-official-name-sync.js";
 
 const SETTING_LAST_STOPPED_AT = "runtime.api.last_stopped_at";
 
@@ -84,10 +85,21 @@ export async function createApiApplication(env: Env): Promise<{
   market.onTick(handleMarketQuotes);
 
   async function reloadMarketFromDb(opts?: { loading?: boolean }) {
-    const stocks = await prisma.stock.findMany({
+    let stocks = await prisma.stock.findMany({
       where: { isActive: true },
       orderBy: { code: "asc" },
     });
+    if (
+      await syncOfficialNamesBatch(
+        prisma,
+        stocks.map((s) => ({ id: s.id, code: s.code, name: s.name, searchAlias: s.searchAlias })),
+      )
+    ) {
+      stocks = await prisma.stock.findMany({
+        where: { isActive: true },
+        orderBy: { code: "asc" },
+      });
+    }
     const provRow = await prisma.systemSetting.findUnique({
       where: { settingKey: "market_data.provider" },
     });

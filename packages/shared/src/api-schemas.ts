@@ -44,6 +44,7 @@ export const StockUpdateSchema = z.object({
     .optional(),
   name: z.string().min(1).max(200).optional(),
   market: z.string().trim().min(1).max(40).optional().nullable(),
+  industryMajorCode: z.string().trim().min(1).max(20).optional().nullable(),
   searchAlias: z.string().max(2000).optional().nullable(),
   isActive: z.boolean().optional(),
 });

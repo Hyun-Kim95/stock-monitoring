@@ -8,6 +8,7 @@ import {
   dedupeNewsByUrl,
   filterNewsPublishedWithinDays,
 } from "../modules/news/process.js";
+import { trySyncStockOfficialName } from "../lib/naver-official-name-sync.js";
 
 /** 관련 뉴스: 최근 약 3개월(90일) */
 const NEWS_MAX_AGE_DAYS = 90;
@@ -24,9 +25,20 @@ export async function registerNewsRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.get("/stocks/:id/news", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const stock = await prisma.stock.findUnique({ where: { id } });
+    let stock = await prisma.stock.findUnique({ where: { id } });
     if (!stock) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
+    }
+    if (
+      await trySyncStockOfficialName(prisma, {
+        id: stock.id,
+        code: stock.code,
+        name: stock.name,
+        searchAlias: stock.searchAlias,
+      })
+    ) {
+      const again = await prisma.stock.findUnique({ where: { id } });
+      if (again) stock = again;
     }
 
     const maxRow = await prisma.systemSetting.findUnique({
