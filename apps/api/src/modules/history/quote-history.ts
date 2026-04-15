@@ -5,6 +5,7 @@ import {
   CHART_RANGE_MATRIX,
   formatChartRangeDescription,
   type ChartGranularity,
+  type ChartMinuteFrame,
   type ChartRange,
 } from "@stock-monitoring/shared";
 
@@ -69,6 +70,8 @@ export type ChartMeta = {
   historyLastAt: string | null;
   /** 저장 구간이 요청보다 짧을 때 안내 */
   hintKo: string | null;
+  /** 분봉일 때만: 집계 프레임(분) */
+  minuteFrame?: ChartMinuteFrame;
 };
 
 export type ChartBundle = {
@@ -78,15 +81,41 @@ export type ChartBundle = {
 
 export type MinuteSession = "all" | "j" | "nx";
 
+/** KST 벽시계 기준 N분 봉 시작(timestamp without time zone). 1분이면 date_trunc('minute', …)와 동일 */
+function kstMinuteBucketTsSql(col: Prisma.Sql, stepMin: ChartMinuteFrame): Prisma.Sql {
+  if (stepMin === 1) {
+    return Prisma.sql`date_trunc('minute', ${col} AT TIME ZONE 'Asia/Seoul')`;
+  }
+  return Prisma.sql`(
+    date_trunc('hour', ${col} AT TIME ZONE 'Asia/Seoul')
+    + ((floor(EXTRACT(minute FROM (${col} AT TIME ZONE 'Asia/Seoul'))) / ${stepMin})::int * ${stepMin}) * INTERVAL '1 minute'
+  )`;
+}
+
+function kstNowMinuteBucketTsSql(stepMin: ChartMinuteFrame): Prisma.Sql {
+  const nk = Prisma.sql`(NOW() AT TIME ZONE 'Asia/Seoul')`;
+  if (stepMin === 1) return Prisma.sql`date_trunc('minute', ${nk})`;
+  return Prisma.sql`(
+    date_trunc('hour', ${nk})
+    + ((floor(EXTRACT(minute FROM ${nk})) / ${stepMin})::int * ${stepMin}) * INTERVAL '1 minute'
+  )`;
+}
+
 export async function fetchChart(
   prisma: PrismaClient,
   stockCode: string,
   granularity: ChartGranularity,
   range: ChartRange,
-  opts?: { limitOverride?: number; minuteSession?: MinuteSession },
+  opts?: { limitOverride?: number; minuteSession?: MinuteSession; minuteFrame?: ChartMinuteFrame },
 ): Promise<ChartBundle> {
   const { from, cap } = windowParams(granularity, range, opts?.limitOverride);
   const minuteSession = opts?.minuteSession ?? "all";
+  const minuteFrame: ChartMinuteFrame = granularity === "minute" ? (opts?.minuteFrame ?? 1) : 1;
+  const ra = Prisma.sql`"recorded_at"`;
+  const bucketRaTs = kstMinuteBucketTsSql(ra, minuteFrame);
+  const bucketNowTs = kstNowMinuteBucketTsSql(minuteFrame);
+  /** 집계 키·API period: KST 벽시계 → timestamptz (기존 1분봉과 동일 패턴) */
+  const periodFromRa = Prisma.sql`(${bucketRaTs} AT TIME ZONE 'Asia/Seoul')`;
   const minuteSessionSql =
     minuteSession === "j"
       ? Prisma.sql`AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time >= TIME '08:00:00') AND (("recorded_at" AT TIME ZONE 'Asia/Seoul')::time <= TIME '15:30:00')`
@@ -101,8 +130,7 @@ export async function fetchChart(
           FROM "stock_quote_history"
           WHERE "stock_code" = ${stockCode}
             AND "recorded_at" >= ${from}
-            AND date_trunc('minute', ("recorded_at" AT TIME ZONE 'Asia/Seoul'))
-              <= date_trunc('minute', (NOW() AT TIME ZONE 'Asia/Seoul'))
+            AND ${bucketRaTs} <= ${bucketNowTs}
             ${minuteSessionSql}
         `
       : prisma.$queryRaw<{ min_t: Date | null; max_t: Date | null }[]>`
@@ -120,7 +148,7 @@ export async function fetchChart(
           return prisma.$queryRaw<OhlcRow[]>`
             SELECT * FROM (
               SELECT * FROM (
-                SELECT (date_trunc('minute', "recorded_at" AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul') AS period,
+                SELECT ${periodFromRa} AS period,
                        CAST((array_agg("price" ORDER BY "recorded_at" ASC))[1] AS INT) AS open,
                        CAST(MAX("price") AS INT) AS high,
                        CAST(MIN("price") AS INT) AS low,
@@ -128,8 +156,7 @@ export async function fetchChart(
                 FROM "stock_quote_history"
                 WHERE "stock_code" = ${stockCode} AND "recorded_at" >= ${from}
                   AND "price" > 0
-                  AND date_trunc('minute', ("recorded_at" AT TIME ZONE 'Asia/Seoul'))
-                    <= date_trunc('minute', (NOW() AT TIME ZONE 'Asia/Seoul'))
+                  AND ${bucketRaTs} <= ${bucketNowTs}
                   AND EXTRACT(ISODOW FROM ("recorded_at" AT TIME ZONE 'Asia/Seoul')) BETWEEN 1 AND 5
                   ${minuteSessionSql}
                   AND NOT (
@@ -248,6 +275,7 @@ export async function fetchChart(
       historyFirstAt,
       historyLastAt,
       hintKo,
+      ...(granularity === "minute" ? { minuteFrame } : {}),
     },
   };
 }

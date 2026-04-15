@@ -3,6 +3,17 @@
 export type ChartGranularity = "minute" | "day" | "month" | "year";
 export type ChartRange = "compact" | "normal" | "deep" | "max";
 
+/** 분봉 집계 단위(분). 1=1분봉, DB 1분 버킷과 동일 */
+export type ChartMinuteFrame = 1 | 5 | 10 | 30;
+
+export const CHART_MINUTE_FRAMES: ChartMinuteFrame[] = [1, 5, 10, 30];
+
+export function parseChartMinuteFrame(raw: string | undefined): ChartMinuteFrame | null {
+  const n = Number(String(raw ?? "").trim());
+  if (!Number.isInteger(n)) return null;
+  return CHART_MINUTE_FRAMES.includes(n as ChartMinuteFrame) ? (n as ChartMinuteFrame) : null;
+}
+
 export type ChartRangeConfig = {
   /** 이 깊이에서 가져올 최대 봉 수(최신부터) */
   barCap: number;

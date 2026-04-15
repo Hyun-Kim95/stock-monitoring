@@ -24,7 +24,12 @@ import {
   maybeBackfillKisChartHistory,
   startOrJoinKisMinuteBackfillToday,
 } from "../modules/history/kis-chart-backfill.js";
-import type { ChartGranularity, ChartRange } from "@stock-monitoring/shared";
+import {
+  parseChartMinuteFrame,
+  type ChartGranularity,
+  type ChartMinuteFrame,
+  type ChartRange,
+} from "@stock-monitoring/shared";
 import { fetchChart } from "../modules/history/quote-history.js";
 
 /** DB에 market이 비어 있으면 네이버 basic API로 채워 저장 (integration에는 시장 필드 없음) */
@@ -249,7 +254,13 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
 
   app.get("/stocks/:id/chart", async (request, reply) => {
     const { id } = request.params as { id: string };
-    const q = request.query as { granularity?: string; range?: string; limit?: string; session?: string };
+    const q = request.query as {
+      granularity?: string;
+      range?: string;
+      limit?: string;
+      session?: string;
+      minuteFrame?: string;
+    };
     const rawG = q.granularity ?? "day";
     const rawR = q.range ?? "normal";
     const allowedG: ChartGranularity[] = ["minute", "day", "month", "year"];
@@ -272,6 +283,22 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     const granularity = rawG as ChartGranularity;
     const range = rawR as ChartRange;
+    let minuteFrame: ChartMinuteFrame = 1;
+    if (granularity === "minute") {
+      const rawMf = q.minuteFrame;
+      if (rawMf != null && String(rawMf).trim() !== "") {
+        const parsed = parseChartMinuteFrame(String(rawMf));
+        if (parsed === null) {
+          return reply.status(400).send({
+            error: {
+              code: "BAD_REQUEST",
+              message: "query minuteFrame=1 | 5 | 10 | 30",
+            },
+          });
+        }
+        minuteFrame = parsed;
+      }
+    }
     const minuteSessionRaw = (q.session ?? "all").trim().toLowerCase();
     if (granularity === "minute" && !["all", "j", "nx"].includes(minuteSessionRaw)) {
       return reply.status(400).send({
@@ -354,7 +381,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     let chartBundle: Awaited<ReturnType<typeof fetchChart>>;
     if (granularity === "minute") {
       const minuteSession = minuteSessionRaw as "all" | "j" | "nx";
-      const cacheKey = `${stock.code}|${granularity}|${range}|${limitOverride ?? "default"}|${minuteSession}`;
+      const cacheKey = `${stock.code}|${granularity}|${range}|${limitOverride ?? "default"}|${minuteSession}|${minuteFrame}`;
       const redisCacheKey = `chart:minute:${cacheKey}`;
       const now = Date.now();
       const cached = minuteChartCache.get(cacheKey);
@@ -378,6 +405,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
           const inFlight = fetchChart(prisma, stock.code, granularity, range, {
             limitOverride,
             minuteSession,
+            minuteFrame,
           });
           minuteChartCache.set(cacheKey, { expiresAt: now + MINUTE_CHART_CACHE_TTL_MS, inFlight });
           minuteBundle = await inFlight;
@@ -401,6 +429,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
       name: stock.name,
       granularity,
       range,
+      ...(granularity === "minute" ? { minuteFrame } : {}),
       candles,
       meta: { ...meta, minuteBackfillInProgress },
     };

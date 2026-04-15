@@ -11,7 +11,8 @@ import type {
   UTCTimestamp,
   WhitespaceData,
 } from "lightweight-charts";
-import type { QuoteSnapshot } from "@stock-monitoring/shared";
+import type { ChartMinuteFrame, QuoteSnapshot } from "@stock-monitoring/shared";
+import { CHART_MINUTE_FRAMES } from "@stock-monitoring/shared";
 import { ApiError, apiGet } from "@/lib/api-client";
 import { formatQuotePrice } from "@/lib/format-quote";
 
@@ -27,12 +28,14 @@ type ChartMeta = {
   hintKo: string | null;
   /** 분봉 선택 시 서버의 KIS 당일 분봉 보강 백그라운드 진행 상태 */
   minuteBackfillInProgress?: boolean;
+  minuteFrame?: ChartMinuteFrame;
 };
 
 type ChartApi = {
   stockId: string;
   granularity: Granularity;
   range: "compact" | "normal" | "deep" | "max";
+  minuteFrame?: ChartMinuteFrame;
   candles: { t: string; open: number; high: number; low: number; close: number }[];
   name: string;
   code: string;
@@ -76,8 +79,8 @@ function computeSma(
   return out;
 }
 
-/** 현재 시각의 KST 분 시작(초 단위 UTC epoch) — 서버 분봉 집계와 동일한 버킷 */
-function kstMinuteStartUtcSec(now = new Date()): UTCTimestamp {
+/** KST 기준 N분 봉 시작(초 단위 UTC epoch) — 서버 분봉 집계 버킷과 동일 */
+function kstNMinuteBucketUtcSec(date: Date, frameMin: ChartMinuteFrame): UTCTimestamp {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
     year: "numeric",
@@ -87,20 +90,17 @@ function kstMinuteStartUtcSec(now = new Date()): UTCTimestamp {
     minute: "2-digit",
     second: "2-digit",
     hour12: false,
-  }).formatToParts(now);
+  }).formatToParts(date);
   const pick = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? "0";
   const y = pick("year");
   const mo = pick("month");
   const d = pick("day");
   const h = pick("hour");
-  const m = pick("minute");
-  const iso = `${y}-${mo}-${d}T${h}:${m}:00+09:00`;
+  const mi = Number(pick("minute"));
+  const floored = Math.floor(mi / frameMin) * frameMin;
+  const mStr = String(floored).padStart(2, "0");
+  const iso = `${y}-${mo}-${d}T${h}:${mStr}:00+09:00`;
   return Math.floor(new Date(iso).getTime() / 1000) as UTCTimestamp;
-}
-
-/** 봉 시각(초)을 KST 분 시작 epoch으로 맞춤 — DB period와 클라이언트 now의 초 단위 차이로 === 비교가 깨지는 것 방지 */
-function minuteBucketUtcSec(barTimeSec: number): UTCTimestamp {
-  return kstMinuteStartUtcSec(new Date(barTimeSec * 1000));
 }
 
 function kstYmdParts(d: Date): { y: string; m: string; day: string } {
@@ -114,8 +114,7 @@ function kstYmdParts(d: Date): { y: string; m: string; day: string } {
   return { y: pick("year"), m: pick("month"), day: pick("day") };
 }
 
-const MINUTE_SEC = 60;
-/** 같은 장중에 봉이 비는 분을 캔들 없이 표시하기 위해 넣는 Whitespace 상한(과거일·장외 대형 갭은 시간축만 사용) */
+/** 같은 장중에 봉이 비는 구간을 캔들 없이 표시하기 위해 넣는 Whitespace 상한(과거일·장외 대형 갭은 시간축만 사용) */
 const MAX_MINUTE_GAP_FOR_WHITESPACE = 6 * 3600;
 const MAX_WHITESPACE_POINTS_TOTAL = 12_000;
 
@@ -131,22 +130,24 @@ function kstDayKeyFromUtcSec(sec: number): string {
  */
 function expandMinuteCandlesWithWhitespace(
   candles: CandlestickData<UTCTimestamp>[],
+  stepSec: number,
 ): Array<CandlestickData<UTCTimestamp> | WhitespaceData<UTCTimestamp>> {
   if (candles.length === 0) return [];
   const sorted = [...candles].sort((a, b) => Number(a.time) - Number(b.time));
   const out: Array<CandlestickData<UTCTimestamp> | WhitespaceData<UTCTimestamp>> = [];
   let wsTotal = 0;
+  const step = Math.max(60, stepSec);
   for (let i = 0; i < sorted.length; i++) {
     out.push(sorted[i]!);
     if (i >= sorted.length - 1) break;
     const cur = Number(sorted[i]!.time);
     const next = Number(sorted[i + 1]!.time);
     const gap = next - cur;
-    if (gap <= MINUTE_SEC) continue;
+    if (gap <= step) continue;
     if (gap > MAX_MINUTE_GAP_FOR_WHITESPACE) continue;
     const sameKstDay = kstDayKeyFromUtcSec(cur) === kstDayKeyFromUtcSec(next);
     if (!sameKstDay) continue;
-    for (let t = cur + MINUTE_SEC; t < next && wsTotal < MAX_WHITESPACE_POINTS_TOTAL; t += MINUTE_SEC) {
+    for (let t = cur + step; t < next && wsTotal < MAX_WHITESPACE_POINTS_TOTAL; t += step) {
       out.push({ time: t as UTCTimestamp });
       wsTotal++;
     }
@@ -159,12 +160,13 @@ function mergeLiveMinuteBar(
   candles: CandlestickData<UTCTimestamp>[],
   quote: QuoteSnapshot | undefined,
   stockCode: string,
+  minuteFrame: ChartMinuteFrame,
 ): CandlestickData<UTCTimestamp>[] {
   if (!quote || quote.symbol !== stockCode) return candles;
   const p = Math.round(quote.price);
   if (!Number.isFinite(p) || p <= 0) return candles;
 
-  const nowBucket = kstMinuteStartUtcSec();
+  const nowBucket = kstNMinuteBucketUtcSec(new Date(), minuteFrame);
   if (candles.length === 0) {
     if (quote.marketSession !== "OPEN" && quote.marketSession !== "PRE") return candles;
     return [{ time: nowBucket, open: p, high: p, low: p, close: p }];
@@ -173,7 +175,7 @@ function mergeLiveMinuteBar(
   const out = candles.map((c) => ({ ...c }));
   const last = out[out.length - 1];
   const lastTs = Number(last.time);
-  const lastBucket = minuteBucketUtcSec(lastTs);
+  const lastBucket = kstNMinuteBucketUtcSec(new Date(lastTs * 1000), minuteFrame);
 
   if (lastBucket === nowBucket) {
     out[out.length - 1] = {
@@ -376,6 +378,7 @@ export function PriceChartPanel({
     ma200: ISeriesApi<"Line"> | null;
   }>({ ma5: null, ma20: null, ma200: null });
   const [granularity, setGranularity] = useState<Granularity>("day");
+  const [minuteFrame, setMinuteFrame] = useState<ChartMinuteFrame>(1);
   const [barLimit, setBarLimit] = useState(2000);
   const [candles, setCandles] = useState<ChartApi["candles"]>([]);
   const [meta, setMeta] = useState<ChartMeta | null>(null);
@@ -432,11 +435,19 @@ export function PriceChartPanel({
       if (granularity === "minute") setShowMinuteBackfillBadge(false);
     }
     try {
+      const mfQ = granularity === "minute" ? `&minuteFrame=${minuteFrame}` : "";
       const res = await apiGet<ChartApi>(
-        `/stocks/${stockId}/chart?granularity=${granularity}&range=max&limit=${barLimit}`,
+        `/stocks/${stockId}/chart?granularity=${granularity}&range=max&limit=${barLimit}${mfQ}`,
       );
       if (seq !== fetchSeqRef.current) return;
       if (res.stockId !== stockId || res.granularity !== granularity) return;
+      if (
+        granularity === "minute" &&
+        res.minuteFrame != null &&
+        res.minuteFrame !== minuteFrame
+      ) {
+        return;
+      }
       setCandles(res.candles);
       setMeta(res.meta);
       if (granularity === "minute") {
@@ -461,7 +472,7 @@ export function PriceChartPanel({
       if (soft) minuteSoftInFlightRef.current = false;
       if (!soft && seq === fetchSeqRef.current) setLoading(false);
     }
-  }, [stockId, granularity, barLimit]);
+  }, [stockId, granularity, barLimit, minuteFrame]);
 
   useEffect(() => {
     void load();
@@ -470,6 +481,10 @@ export function PriceChartPanel({
   useEffect(() => {
     setShowAllThemes(false);
   }, [stockId]);
+
+  useEffect(() => {
+    if (granularity !== "minute") setMinuteFrame(1);
+  }, [granularity]);
 
   useEffect(() => {
     if (granularity !== "minute") return;
@@ -484,22 +499,22 @@ export function PriceChartPanel({
   const lwData = useMemo(() => {
     if (granularity === "minute") {
       const merged = stockCode
-        ? mergeLiveMinuteBar(lwBase, liveQuote, stockCode)
+        ? mergeLiveMinuteBar(lwBase, liveQuote, stockCode, minuteFrame)
         : lwBase;
-      return expandMinuteCandlesWithWhitespace(merged);
+      return expandMinuteCandlesWithWhitespace(merged, minuteFrame * 60);
     }
     if (!stockCode) return lwBase;
     return mergeLiveIntoAggregatedLastBar(lwBase, liveQuote, stockCode, granularity);
-  }, [lwBase, granularity, stockCode, liveQuote]);
+  }, [lwBase, granularity, stockCode, liveQuote, minuteFrame]);
 
   /** 이평선은 실제 봉만 사용(분봉 Whitespace 제외), 시세 반영은 캔들과 동일 */
   const candlesForMa = useMemo((): CandlestickData<UTCTimestamp>[] => {
     if (granularity === "minute") {
-      return stockCode ? mergeLiveMinuteBar(lwBase, liveQuote, stockCode) : lwBase;
+      return stockCode ? mergeLiveMinuteBar(lwBase, liveQuote, stockCode, minuteFrame) : lwBase;
     }
     if (!stockCode) return lwBase;
     return mergeLiveIntoAggregatedLastBar(lwBase, liveQuote, stockCode, granularity);
-  }, [lwBase, granularity, stockCode, liveQuote]);
+  }, [lwBase, granularity, stockCode, liveQuote, minuteFrame]);
 
   const smaData = useMemo(() => {
     const sorted = [...candlesForMa].sort((a, b) => Number(a.time) - Number(b.time));
@@ -703,7 +718,7 @@ export function PriceChartPanel({
       prevDataLenRef.current = 0;
       setHoverBar(null);
     };
-  }, [stockId, granularity, barLimit, hasChartData]);
+  }, [stockId, granularity, barLimit, minuteFrame, hasChartData]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -837,6 +852,22 @@ export function PriceChartPanel({
               {GRAN_LABELS[g]}
             </button>
           ))}
+          {granularity === "minute" ? (
+            <>
+              <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>분봉</span>
+              {CHART_MINUTE_FRAMES.map((mf) => (
+                <button
+                  key={mf}
+                  type="button"
+                  className={minuteFrame === mf ? "primary" : "btn btn-secondary"}
+                  style={{ fontSize: 12, padding: "4px 10px" }}
+                  onClick={() => setMinuteFrame(mf)}
+                >
+                  {mf}분
+                </button>
+              ))}
+            </>
+          ) : null}
           <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>봉 개수</span>
           <input
             type="number"
