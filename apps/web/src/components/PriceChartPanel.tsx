@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createSeriesMarkers } from "lightweight-charts";
 import type {
   CandlestickData,
   IChartApi,
+  ISeriesMarkersPluginApi,
   ISeriesApi,
   LineData,
   MouseEventParams,
+  SeriesMarker,
   Time,
   UTCTimestamp,
   WhitespaceData,
@@ -51,6 +54,7 @@ const GRAN_LABELS: Record<Granularity, string> = {
 
 /** 분봉: 팬/줌 등 조작 후 이 시간(ms) 동안 최신 봉 자동 추적 안 함(매 조작마다 시각 갱신) */
 const MINUTE_LATEST_FOLLOW_SUPPRESS_MS = 10_000;
+const CHART_RIGHT_OFFSET_BARS = 8;
 
 function toLwCandles(rows: ChartApi["candles"]): CandlestickData<UTCTimestamp>[] {
   return rows.map((r) => ({
@@ -341,16 +345,70 @@ function formatTickMarkLabel(
   return null;
 }
 
-function showRecentBarsByDefault(chart: IChartApi, dataLen: number, recentBars = 500): void {
+function showRecentBarsByDefault(
+  chart: IChartApi,
+  dataLen: number,
+  recentBars = 500,
+  rightOffsetBars = CHART_RIGHT_OFFSET_BARS,
+): void {
   const ts = chart.timeScale();
   if (dataLen <= 0) return;
-  if (dataLen <= recentBars) {
-    ts.fitContent();
-    return;
-  }
-  const to = dataLen - 1;
-  const from = Math.max(0, to - (recentBars - 1));
+  const to = dataLen - 1 + Math.max(0, rightOffsetBars);
+  const visibleBars = Math.min(Math.max(1, dataLen), Math.max(1, recentBars));
+  const from = Math.max(0, to - (visibleBars - 1));
   ts.setVisibleLogicalRange({ from, to });
+}
+
+function isCandlestickPoint(
+  p: CandlestickData<UTCTimestamp> | WhitespaceData<UTCTimestamp>,
+): p is CandlestickData<UTCTimestamp> {
+  return "open" in p && "high" in p && "low" in p && "close" in p;
+}
+
+function toVisibleSliceBounds(
+  dataLen: number,
+  logicalRange: { from: number; to: number } | null,
+): { from: number; to: number } | null {
+  if (!logicalRange || dataLen <= 0) return null;
+  const from = Math.max(0, Math.floor(logicalRange.from));
+  const to = Math.min(dataLen - 1, Math.ceil(logicalRange.to));
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from > to) return null;
+  return { from, to };
+}
+
+function buildVisibleExtremaMarkers(
+  data: Array<CandlestickData<UTCTimestamp> | WhitespaceData<UTCTimestamp>>,
+  logicalRange: { from: number; to: number } | null,
+): SeriesMarker<UTCTimestamp>[] {
+  const bounds = toVisibleSliceBounds(data.length, logicalRange);
+  if (!bounds) return [];
+
+  let hi: CandlestickData<UTCTimestamp> | null = null;
+  let lo: CandlestickData<UTCTimestamp> | null = null;
+  for (let i = bounds.from; i <= bounds.to; i++) {
+    const p = data[i];
+    if (!p || !isCandlestickPoint(p)) continue;
+    if (!hi || p.high >= hi.high) hi = p;
+    if (!lo || p.low <= lo.low) lo = p;
+  }
+  if (!hi || !lo) return [];
+
+  const markers: SeriesMarker<UTCTimestamp>[] = [];
+  markers.push({
+    time: hi.time,
+    position: "aboveBar",
+    color: "#ef5350",
+    shape: "arrowDown",
+    text: `고 ${Math.round(hi.high).toLocaleString("ko-KR")}`,
+  });
+  markers.push({
+    time: lo.time,
+    position: "belowBar",
+    color: "#2196f3",
+    shape: "arrowUp",
+    text: `저 ${Math.round(lo.low).toLocaleString("ko-KR")}`,
+  });
+  return markers;
 }
 
 export function PriceChartPanel({
@@ -414,6 +472,14 @@ export function PriceChartPanel({
   const isProgrammaticTimeRangeChangeRef = useRef(false);
   /** 이전 데이터 길이(초기 소량 캔들 상태 판별용) */
   const prevDataLenRef = useRef(0);
+  /** 극값 마커 중복 갱신 방지용 rAF id */
+  const markerRafRef = useRef<number | null>(null);
+  /** 마커 계산용 최신 차트 데이터 스냅샷 */
+  const lwDataRef = useRef<Array<CandlestickData<UTCTimestamp> | WhitespaceData<UTCTimestamp>>>([]);
+  /** 시리즈 마커 플러그인 API(1회 생성 후 재사용) */
+  const markerApiRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  /** 분봉 suppression 중 복원용 직전 logical range */
+  const minuteLastVisibleLogicalRangeRef = useRef<{ from: number; to: number } | null>(null);
 
   const bumpMinuteViewportSuppress = () => {
     minuteViewportSuppressFollowUntilRef.current = Date.now() + MINUTE_LATEST_FOLLOW_SUPPRESS_MS;
@@ -506,6 +572,31 @@ export function PriceChartPanel({
     if (!stockCode) return lwBase;
     return mergeLiveIntoAggregatedLastBar(lwBase, liveQuote, stockCode, granularity);
   }, [lwBase, granularity, stockCode, liveQuote, minuteFrame]);
+  lwDataRef.current = lwData;
+
+  const applyVisibleExtremaMarkers = useCallback(
+    (opts?: { defer?: boolean }) => {
+      const series = seriesRef.current;
+      const chart = chartRef.current;
+      if (!series || !chart) return;
+      const run = () => {
+        markerRafRef.current = null;
+        const markers = buildVisibleExtremaMarkers(lwDataRef.current, chart.timeScale().getVisibleLogicalRange());
+        if (!markerApiRef.current) {
+          markerApiRef.current = createSeriesMarkers(series, markers);
+          return;
+        }
+        markerApiRef.current.setMarkers(markers);
+      };
+      if (opts?.defer) {
+        if (markerRafRef.current != null) cancelAnimationFrame(markerRafRef.current);
+        markerRafRef.current = requestAnimationFrame(run);
+      } else {
+        run();
+      }
+    },
+    [],
+  );
 
   /** 이평선은 실제 봉만 사용(분봉 Whitespace 제외), 시세 반영은 캔들과 동일 */
   const candlesForMa = useMemo((): CandlestickData<UTCTimestamp>[] => {
@@ -539,8 +630,10 @@ export function PriceChartPanel({
       chartRef.current = null;
       seriesRef.current = null;
       maSeriesRef.current = { ma5: null, ma20: null, ma200: null };
+      markerApiRef.current = null;
       userAdjustedRangeRef.current = false;
       minuteViewportSuppressFollowUntilRef.current = 0;
+      minuteLastVisibleLogicalRangeRef.current = null;
       prevDataLenRef.current = 0;
       setHoverBar(null);
       return;
@@ -587,6 +680,7 @@ export function PriceChartPanel({
           borderColor: "rgba(128,128,128,0.25)",
           timeVisible: isMinute,
           secondsVisible: false,
+          rightOffset: CHART_RIGHT_OFFSET_BARS,
           /** 새 봉이 붙을 때 보이는 구간이 자동으로 밀리며 확대가 풀리는 것 방지 */
           shiftVisibleRangeOnNewBar: false,
           /** 과도한 확대로 한두 개 봉만 보이는 상태를 방지 (대략 한 화면 최소 40봉) */
@@ -636,10 +730,15 @@ export function PriceChartPanel({
       chartRef.current = chart;
       seriesRef.current = series;
       userAdjustedRangeRef.current = false;
-      minuteViewportSuppressFollowUntilRef.current = 0;
       prevDataLenRef.current = lwData.length;
+      minuteLastVisibleLogicalRangeRef.current = chart.timeScale().getVisibleLogicalRange();
+      applyVisibleExtremaMarkers({ defer: true });
 
-      const onLogicalRangeUserChange = () => {
+      const onLogicalRangeUserChange = (range: { from: number; to: number } | null) => {
+        if (granularity === "minute") {
+          minuteLastVisibleLogicalRangeRef.current = range;
+        }
+        if (range) applyVisibleExtremaMarkers({ defer: true });
         if (isProgrammaticTimeRangeChangeRef.current) return;
         if (granularity === "minute") {
           bumpMinuteViewportSuppress();
@@ -660,9 +759,11 @@ export function PriceChartPanel({
       /** 차트 캔버스에서 소비되는 휠도 컨테이너에서 먼저 잡기 위해 capture */
       containerRef.current?.addEventListener("wheel", onViewportUserGesture, { passive: true, capture: true });
       containerRef.current?.addEventListener("touchstart", onViewportUserGesture, { passive: true, capture: true });
+      containerRef.current?.addEventListener("pointerdown", onViewportUserGesture, { passive: true, capture: true });
       removeUserAdjustListeners = () => {
         containerRef.current?.removeEventListener("wheel", onViewportUserGesture, { capture: true });
         containerRef.current?.removeEventListener("touchstart", onViewportUserGesture, { capture: true });
+        containerRef.current?.removeEventListener("pointerdown", onViewportUserGesture, { capture: true });
       };
 
       const onCrosshairMove = (param: MouseEventParams) => {
@@ -709,16 +810,20 @@ export function PriceChartPanel({
       unsubLogicalRange?.();
       ro?.disconnect();
       removeUserAdjustListeners?.();
+      if (markerRafRef.current != null) {
+        cancelAnimationFrame(markerRafRef.current);
+        markerRafRef.current = null;
+      }
       chartRef.current?.remove();
       chartRef.current = null;
       seriesRef.current = null;
       maSeriesRef.current = { ma5: null, ma20: null, ma200: null };
+      markerApiRef.current = null;
       userAdjustedRangeRef.current = false;
-      minuteViewportSuppressFollowUntilRef.current = 0;
       prevDataLenRef.current = 0;
       setHoverBar(null);
     };
-  }, [stockId, granularity, barLimit, minuteFrame, hasChartData]);
+  }, [stockId, granularity, barLimit, minuteFrame, hasChartData, applyVisibleExtremaMarkers]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -739,6 +844,7 @@ export function PriceChartPanel({
       ma.ma20.setData(smaData.ma20);
       ma.ma200.setData(smaData.ma200);
       showRecentBarsByDefault(chart, lwData.length, 500);
+      applyVisibleExtremaMarkers({ defer: true });
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           isProgrammaticTimeRangeChangeRef.current = false;
@@ -748,6 +854,10 @@ export function PriceChartPanel({
     }
     const ts = chart.timeScale();
     const vis = ts.getVisibleRange();
+    const logicalNow = ts.getVisibleLogicalRange();
+    if (granularity === "minute") {
+      minuteLastVisibleLogicalRangeRef.current = logicalNow;
+    }
     const logicalBefore =
       granularity === "minute" && !isMinuteLatestFollowSuppressed() ? ts.getVisibleLogicalRange() : null;
 
@@ -767,14 +877,17 @@ export function PriceChartPanel({
             logicalBefore.to > logicalBefore.from
           ) {
             const width = logicalBefore.to - logicalBefore.from;
-            const newTo = lwData.length - 1;
+            const newTo = lwData.length - 1 + CHART_RIGHT_OFFSET_BARS;
             const newFrom = Math.max(0, newTo - width);
             chart.timeScale().setVisibleLogicalRange({ from: newFrom, to: newTo });
+            applyVisibleExtremaMarkers({ defer: true });
           } else {
             showRecentBarsByDefault(chart, lwData.length, 500);
+            applyVisibleExtremaMarkers({ defer: true });
           }
         } catch {
           showRecentBarsByDefault(chart, lwData.length, 500);
+          applyVisibleExtremaMarkers({ defer: true });
         } finally {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
@@ -783,12 +896,16 @@ export function PriceChartPanel({
           });
         }
       });
-    } else if (vis) {
+    } else if (vis || (granularity === "minute" && minuteLastVisibleLogicalRangeRef.current)) {
       requestAnimationFrame(() => {
         try {
-          chart.timeScale().setVisibleRange(vis);
+          if (granularity === "minute" && minuteLastVisibleLogicalRangeRef.current) {
+            chart.timeScale().setVisibleLogicalRange(minuteLastVisibleLogicalRangeRef.current);
+          } else if (vis) {
+            chart.timeScale().setVisibleRange(vis);
+          }
         } catch {
-          /* 새 데이터에 from/to가 없으면 라이브러리가 조정함 */
+          /* 범위 복원이 불가능하면 라이브러리 기본 조정 사용 */
         } finally {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
@@ -798,9 +915,10 @@ export function PriceChartPanel({
         }
       });
     } else {
+      applyVisibleExtremaMarkers({ defer: true });
       isProgrammaticTimeRangeChangeRef.current = false;
     }
-  }, [lwData, smaData, granularity]);
+  }, [lwData, smaData, granularity, applyVisibleExtremaMarkers]);
 
   return (
     <div style={{ minHeight: 200 }}>
