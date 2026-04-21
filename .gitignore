@@ -37,3 +37,8 @@ setup-startup.bat
 
 # 로컬 이미지(포트폴리오 캡처 등 — 저장소에 올리지 않음)
 image/
+
+# Obsidian / Cursor 로컬 자동화(개인 PC 경로·상태 파일)
+.obsidian-ingest.json
+_config/obsidian-repos.json
+.cursor/state/

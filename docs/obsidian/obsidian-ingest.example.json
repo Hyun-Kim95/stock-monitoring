@@ -1,0 +1,9 @@
+{
+  "slug": "your-repo-folder-name",
+  "lockSlug": false,
+  "displayName": "Human-readable project title (optional)",
+  "hubFileStem": "ascii-hub-filename-without-md-optional",
+  "syncMode": "safe",
+  "vaultRoot": "D:\\Obsidian\\projects",
+  "docsPaths": ["docs"]
+}
