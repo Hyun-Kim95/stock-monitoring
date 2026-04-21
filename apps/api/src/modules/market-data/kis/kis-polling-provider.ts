@@ -15,6 +15,8 @@ import {
 type SessionState = "OPEN" | "CLOSED" | "PRE" | "AFTER";
 type SessionSlot = "OFF" | "PRE" | "REGULAR" | "NXT" | "AFTER";
 const KIS_TOKEN_CACHE_FILE = path.join(os.homedir(), ".stock-monitoring", "kis-token-cache.json");
+/** NX 미적격(false) 고정 방지: 일정 시간 후 재판정 */
+const NX_FALSE_RETRY_MS = 10 * 60_000;
 
 function kstSessionSlotNow(): SessionSlot {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -139,11 +141,39 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
   let tickInFlight = false;
   const nxEligibleByCode = new Map<string, boolean | null>();
   const nxEligibilityFailByCode = new Map<string, number>();
+  const nxReprobeNotBeforeByCode = new Map<string, number>();
   const investorNetByCode = new Map<string, { value: number | null; fetchedAt: number; inFlight?: Promise<void> }>();
   let tokenCacheHydrated = false;
   /** tick과 동시에 seed하면 토큰 발급·한도에서 실패하고 맵이 영원히 비는 경우가 있어, 첫 틱 이후에만 시드한다 */
   let nxEligibilitySeedStarted = false;
   let nxEligibilitySeedQueued = false;
+
+  function shouldProbeNxNow(code: string): boolean {
+    const elig = nxEligibleByCode.get(code);
+    if (elig !== false) return true;
+    const notBefore = nxReprobeNotBeforeByCode.get(code) ?? 0;
+    if (Date.now() < notBefore) return false;
+    // 재판정 시점이 되면 false 고정을 풀고 다시 시도한다.
+    nxEligibleByCode.set(code, null);
+    return true;
+  }
+
+  function markNxProbeSuccess(code: string): void {
+    nxEligibleByCode.set(code, true);
+    nxEligibilityFailByCode.set(code, 0);
+    nxReprobeNotBeforeByCode.delete(code);
+  }
+
+  function markNxProbeFailure(code: string, lockFalse: boolean): void {
+    const fail = (nxEligibilityFailByCode.get(code) ?? 0) + 1;
+    nxEligibilityFailByCode.set(code, fail);
+    if (lockFalse && fail >= 6) {
+      nxEligibleByCode.set(code, false);
+      nxReprobeNotBeforeByCode.set(code, Date.now() + NX_FALSE_RETRY_MS);
+      return;
+    }
+    nxEligibleByCode.set(code, null);
+  }
 
   async function refreshInvestorNetIfNeeded(token: string, code: string): Promise<void> {
     const refreshMs = opts.investorRefreshMs ?? 60_000;
@@ -306,25 +336,20 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
           let out: Record<string, string | undefined> | null = null;
           let usedNx = false;
 
-          if ((slot === "NXT" || slot === "AFTER") && nxEligibleByCode.get(s.code) !== false) {
+          if ((slot === "NXT" || slot === "AFTER") && shouldProbeNxNow(s.code)) {
             try {
               const nxOut = await request("NX");
               const nxPrice = parsePositive(nxOut, "stck_prpr", "STCK_PRPR");
               if (Number.isFinite(nxPrice) && nxPrice > 0) {
                 out = nxOut;
                 usedNx = true;
-                nxEligibleByCode.set(s.code, true);
-                nxEligibilityFailByCode.set(s.code, 0);
+                markNxProbeSuccess(s.code);
               } else {
                 // 0원/빈값은 시간대·상황 영향일 수 있어 즉시 미적격으로 단정하지 않는다.
-                const fail = (nxEligibilityFailByCode.get(s.code) ?? 0) + 1;
-                nxEligibilityFailByCode.set(s.code, fail);
-                nxEligibleByCode.set(s.code, fail >= 6 ? false : null);
+                markNxProbeFailure(s.code, true);
               }
             } catch {
-              const fail = (nxEligibilityFailByCode.get(s.code) ?? 0) + 1;
-              nxEligibilityFailByCode.set(s.code, fail);
-              nxEligibleByCode.set(s.code, fail >= 6 ? false : null);
+              markNxProbeFailure(s.code, true);
             }
           }
 
@@ -396,7 +421,7 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
         nxEligibilitySeedStarted = true;
         for (let i = 0; i < symbols.length; i++) {
           const s = symbols[i]!;
-          if (nxEligibleByCode.has(s.code)) continue;
+          if (nxEligibleByCode.has(s.code) && !shouldProbeNxNow(s.code)) continue;
           try {
             const kisIscd = normalizeKrxStockCode(s.code);
             const nxOut = await fetchKisInquirePrice(
@@ -410,13 +435,13 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
             );
             const nxPrice = parsePositive(nxOut, "stck_prpr", "STCK_PRPR");
             if (Number.isFinite(nxPrice) && nxPrice > 0) {
-              nxEligibleByCode.set(s.code, true);
-              nxEligibilityFailByCode.set(s.code, 0);
+              markNxProbeSuccess(s.code);
             } else {
-              nxEligibleByCode.set(s.code, null);
+              // seed 단계의 실패는 미적격 확정(false)으로 잠그지 않는다.
+              markNxProbeFailure(s.code, false);
             }
           } catch {
-            nxEligibleByCode.set(s.code, null);
+            markNxProbeFailure(s.code, false);
           }
           if (i < symbols.length - 1) await sleep(gap);
         }
@@ -440,6 +465,7 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
       investorNetByCode.clear();
       nxEligibleByCode.clear();
       nxEligibilityFailByCode.clear();
+      nxReprobeNotBeforeByCode.clear();
       nxEligibilitySeedStarted = false;
       nxEligibilitySeedQueued = false;
       void tick();

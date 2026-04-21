@@ -441,7 +441,10 @@ export function DashboardPage() {
                             NXT
                           </span>
                         ) : s.nxEligible === false ? (
-                          <span style={{ color: "var(--muted-foreground)", fontSize: 12 }} title="NXT 미지원 또는 미적격">
+                          <span
+                            style={{ color: "var(--muted-foreground)", fontSize: 12 }}
+                            title="현재 NXT 미적격(일시 실패 포함). 서버가 주기적으로 재확인합니다."
+                          >
                             —
                           </span>
                         ) : (
