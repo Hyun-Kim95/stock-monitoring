@@ -47,3 +47,5 @@ Next.js + Fastify + PostgreSQL + Prisma 모노레포. 시세는 기본 **목(moc
 - `docs/PHASE0_OPERATIONS.md` — Phase 0 잠정 운영·API 메모
 - `docs/DECISION_LOG.md` — 외부 API·인프라·운영 **합의안**(개정 시 여기만 갱신)
 
+**Cursor 훅:** `.cursor/hooks.json`은 **로컬 Cursor**에서만 동작하며, Windows에서 `powershell`로 스크립트를 호출하는 전제다. **GitHub Actions CI에서는 실행되지 않는다.** Obsidian 연동·훅 동작 요약은 `docs/obsidian/README.md`의「Cursor에서 자동 설치」, 에이전트 규칙 요약은 `docs/agent/rules-context-notes.md`를 참고한다.
+

@@ -24,6 +24,11 @@ description: Gate 1 확인 후 구현·검증·문서화; 필요 시 parallel-de
 7. 구현 후 `qa-agent`로 요구사항 충족 여부와 회귀 위험을 검토한다. (Gate 3의 일부)
 8. 마지막으로 `docs-agent`를 사용해 변경사항을 정리한다. (Gate 3의 일부)
 
+## 출력/보고 형식
+- 사용자 입력은 문장형 지시를 기본으로 해석한다.
+- 결과 보고 형식(요약/실행/리스크/다음 액션)과 승인 대기 표기는 `.cursor/rules/55-output-contract.mdc`를 따른다.
+- 완료/검증 완료/출시 준비 판정 보고는 `.cursor/rules/65-completion-gate-enforcement.mdc` 권장 형식을 따른다.
+
 ## 결과물
 - 구현 코드
 - 필요한 경우 요구사항 정리 메모

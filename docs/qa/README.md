@@ -15,3 +15,4 @@
 - feature-checklist.md
 - release-checklist.md
 - admin-table-qa.md
+- stage3-entry-checklist.md
