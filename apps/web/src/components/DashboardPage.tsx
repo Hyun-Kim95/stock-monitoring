@@ -39,6 +39,7 @@ type NewsItem = {
 };
 
 type SortKey = "name" | "price" | "changeRate" | "volume" | "foreignNetBuyVolume" | "foreignOwnershipPct";
+type SortDirection = "asc" | "desc";
 
 function formatForeignNetVol(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "—";
@@ -57,9 +58,12 @@ export function DashboardPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 비어 있으면 테마 필터 없음. 값이 있으면 해당 테마 중 하나라도 있는 종목만 표시(OR). */
   const [themeFilterIds, setThemeFilterIds] = useState<string[]>([]);
-  const [sortKey, setSortKey] = useState<SortKey>("changeRate");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [sortKey, setSortKey] = useState<SortKey | null>("changeRate");
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
   const [filterText, setFilterText] = useState("");
+  const [marketFilter, setMarketFilter] = useState("ALL");
+  const [sessionFilter, setSessionFilter] = useState("ALL");
+  const [nxtFilter, setNxtFilter] = useState("ALL");
   const [news, setNews] = useState<NewsItem[]>([]);
   const [newsErr, setNewsErr] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -156,6 +160,22 @@ export function DashboardPage() {
       setSelectedId(null);
       return;
     }
+    if (marketFilter !== "ALL" && (s.market ?? "—") !== marketFilter) {
+      setSelectedId(null);
+      return;
+    }
+    const session = quotes.get(s.code)?.marketSession ?? "—";
+    if (sessionFilter !== "ALL" && session !== sessionFilter) {
+      setSelectedId(null);
+      return;
+    }
+    if (nxtFilter !== "ALL") {
+      const nxt = s.nxEligible === true ? "Y" : s.nxEligible === false ? "N" : "UNKNOWN";
+      if (nxt !== nxtFilter) {
+        setSelectedId(null);
+        return;
+      }
+    }
     if (
       q &&
       !s.code.toLowerCase().includes(q) &&
@@ -164,7 +184,15 @@ export function DashboardPage() {
     ) {
       setSelectedId(null);
     }
-  }, [selectedId, stocks, themeFilterIds, filterText]);
+  }, [selectedId, stocks, themeFilterIds, filterText, marketFilter, sessionFilter, nxtFilter, quotes]);
+
+  const marketOptions = useMemo(() => {
+    return [...new Set(stocks.map((s) => s.market ?? "—"))].sort((a, b) => a.localeCompare(b, "ko"));
+  }, [stocks]);
+
+  const sessionOptions = useMemo(() => {
+    return [...new Set(stocks.map((s) => quotes.get(s.code)?.marketSession ?? "—"))].sort((a, b) => a.localeCompare(b, "ko"));
+  }, [stocks, quotes]);
 
   const portfolioThemes = useMemo(() => {
     const m = new Map<string, ThemeBrief>();
@@ -218,6 +246,13 @@ export function DashboardPage() {
       if (themeFilterIds.length > 0) {
         if (!s.themes.some((t) => themeFilterIds.includes(t.id))) return false;
       }
+      if (marketFilter !== "ALL" && (s.market ?? "—") !== marketFilter) return false;
+      const session = quotes.get(s.code)?.marketSession ?? "—";
+      if (sessionFilter !== "ALL" && session !== sessionFilter) return false;
+      if (nxtFilter !== "ALL") {
+        const nxt = s.nxEligible === true ? "Y" : s.nxEligible === false ? "N" : "UNKNOWN";
+        if (nxt !== nxtFilter) return false;
+      }
       if (!q) return true;
       return (
         s.code.toLowerCase().includes(q) ||
@@ -231,6 +266,7 @@ export function DashboardPage() {
     list = [...list].sort((a, b) => {
       const qa = getQuote(a.code);
       const qb = getQuote(b.code);
+      if (!sortKey) return 0;
       const dir = sortDir === "asc" ? 1 : -1;
       if (sortKey === "name") {
         return a.name.localeCompare(b.name, "ko") * dir;
@@ -251,9 +287,9 @@ export function DashboardPage() {
         return fa === fb ? 0 : fa < fb ? -dir : dir;
       }
       if (sortKey === "foreignOwnershipPct") {
-        const pa = qa?.foreignOwnershipPct ?? -Infinity;
-        const pb = qb?.foreignOwnershipPct ?? -Infinity;
-        return pa === pb ? 0 : pa < pb ? -dir : dir;
+        const fa = qa?.foreignOwnershipPct ?? -Infinity;
+        const fb = qb?.foreignOwnershipPct ?? -Infinity;
+        return fa === fb ? 0 : fa < fb ? -dir : dir;
       }
       const va = qa?.volume ?? -Infinity;
       const vb = qb?.volume ?? -Infinity;
@@ -261,15 +297,24 @@ export function DashboardPage() {
     });
 
     return list;
-  }, [stocks, filterText, themeFilterIds, sortKey, sortDir, quotes]);
+  }, [stocks, filterText, themeFilterIds, marketFilter, sessionFilter, nxtFilter, sortKey, sortDir, quotes]);
 
   function toggleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
+    if (sortKey !== key) {
       setSortKey(key);
-      setSortDir(key === "name" ? "asc" : "desc");
+      setSortDir("asc");
+      return;
     }
+    if (sortDir === "asc") {
+      setSortDir("desc");
+      return;
+    }
+    setSortKey(null);
+  }
+
+  function sortIndicator(key: SortKey): string {
+    if (sortKey !== key) return "";
+    return sortDir === "asc" ? "▲" : "▼";
   }
 
   return (
@@ -294,6 +339,28 @@ export function DashboardPage() {
             onChange={(e) => setFilterText(e.target.value)}
             style={{ minWidth: 200 }}
           />
+          <select value={marketFilter} onChange={(e) => setMarketFilter(e.target.value)} aria-label="시장 필터">
+            <option value="ALL">시장: 전체</option>
+            {marketOptions.map((market) => (
+              <option key={market} value={market}>
+                시장: {market}
+              </option>
+            ))}
+          </select>
+          <select value={sessionFilter} onChange={(e) => setSessionFilter(e.target.value)} aria-label="세션 필터">
+            <option value="ALL">세션: 전체</option>
+            {sessionOptions.map((session) => (
+              <option key={session} value={session}>
+                세션: {session}
+              </option>
+            ))}
+          </select>
+          <select value={nxtFilter} onChange={(e) => setNxtFilter(e.target.value)} aria-label="NXT 필터">
+            <option value="ALL">NXT: 전체</option>
+            <option value="Y">NXT: 가능</option>
+            <option value="N">NXT: 미적격</option>
+            <option value="UNKNOWN">NXT: 확인중</option>
+          </select>
           <ThemeToggle />
           <div
             style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}
@@ -368,39 +435,62 @@ export function DashboardPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>종목</th>
-                  <th style={{ width: 52, textAlign: "center" }} title="KOSPI / KOSDAQ / KONEX">
+                  <th
+                    style={{ position: "sticky", top: 0, zIndex: 2, background: "var(--card)", cursor: "pointer" }}
+                    onClick={() => toggleSort("name")}
+                  >
+                    종목 {sortIndicator("name")}
+                  </th>
+                  <th
+                    style={{ width: 52, textAlign: "center", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
+                    title="KOSPI / KOSDAQ / KONEX"
+                  >
                     시장
                   </th>
-                  <th style={{ width: 56, textAlign: "center" }} title="넥스트(NXT) 시간외 거래 시세 조회 가능 여부(KIS)">
+                  <th
+                    style={{ width: 56, textAlign: "center", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
+                    title="넥스트(NXT) 시간외 거래 시세 조회 가능 여부(KIS)"
+                  >
                     NXT
-                  </th>
-                  <th className="num" style={{ cursor: "pointer" }} onClick={() => toggleSort("price")}>
-                    현재가 {sortKey === "price" ? (sortDir === "asc" ? "▲" : "▼") : ""}
-                  </th>
-                  <th className="num" style={{ cursor: "pointer" }} onClick={() => toggleSort("changeRate")}>
-                    등락률 {sortKey === "changeRate" ? (sortDir === "asc" ? "▲" : "▼") : ""}
-                  </th>
-                  <th className="num" style={{ cursor: "pointer" }} onClick={() => toggleSort("volume")}>
-                    거래량 {sortKey === "volume" ? (sortDir === "asc" ? "▲" : "▼") : ""}
                   </th>
                   <th
                     className="num"
-                    style={{ cursor: "pointer" }}
+                    style={{ cursor: "pointer", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
+                    onClick={() => toggleSort("price")}
+                  >
+                    현재가 {sortIndicator("price")}
+                  </th>
+                  <th
+                    className="num"
+                    style={{ cursor: "pointer", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
+                    onClick={() => toggleSort("changeRate")}
+                  >
+                    등락률 {sortIndicator("changeRate")}
+                  </th>
+                  <th
+                    className="num"
+                    style={{ cursor: "pointer", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
+                    onClick={() => toggleSort("volume")}
+                  >
+                    거래량 {sortIndicator("volume")}
+                  </th>
+                  <th
+                    className="num"
+                    style={{ cursor: "pointer", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
                     onClick={() => toggleSort("foreignNetBuyVolume")}
                     title="당일 외국인 순매수 수량(주). 투자자 수급 TR 기준"
                   >
-                    외인순매수 {sortKey === "foreignNetBuyVolume" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    외인순매수 {sortIndicator("foreignNetBuyVolume")}
                   </th>
                   <th
                     className="num"
-                    style={{ cursor: "pointer" }}
+                    style={{ cursor: "pointer", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
                     onClick={() => toggleSort("foreignOwnershipPct")}
                     title="외국인 소진율(%)"
                   >
-                    외인% {sortKey === "foreignOwnershipPct" ? (sortDir === "asc" ? "▲" : "▼") : ""}
+                    외인% {sortIndicator("foreignOwnershipPct")}
                   </th>
-                  <th>세션</th>
+                  <th style={{ position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}>세션</th>
                 </tr>
               </thead>
               <tbody>
