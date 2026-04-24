@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { DASHBOARD_OPEN_STOCK_CHART, DASHBOARD_STOCK_CODE_QUERY } from "@/lib/dashboard-open-stock";
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
 
 /** 대시보드에서 선택 가능한 전일대비 등락률 알림 기준(상·하 동일 %p) */
@@ -67,14 +68,32 @@ function stepArmZone(
   return { zone: "neutral", firedUp: false, firedDown: false };
 }
 
-async function notifyCrossing(q: QuoteSnapshot, direction: "up" | "down") {
+function notifyCrossing(q: QuoteSnapshot, direction: "up" | "down") {
   if (typeof Notification === "undefined") return;
   if (Notification.permission !== "granted") return;
   const title = direction === "up" ? "급등 알림" : "급락 알림";
   const rateStr = `${q.changeRate >= 0 ? "+" : ""}${q.changeRate.toFixed(2)}%`;
   const body = `${q.name} (${q.symbol}) 전일대비 ${rateStr}`;
   try {
-    new Notification(title, { body });
+    const n = new Notification(title, { body });
+    n.onclick = () => {
+      n.close();
+      try {
+        window.focus();
+      } catch {
+        /* ignore */
+      }
+      const code = q.symbol;
+      const path = window.location.pathname;
+      const onHome = path === "/" || path === "";
+      if (onHome) {
+        window.dispatchEvent(
+          new CustomEvent(DASHBOARD_OPEN_STOCK_CHART, { detail: { code } }),
+        );
+      } else {
+        window.location.assign(`/?${DASHBOARD_STOCK_CODE_QUERY}=${encodeURIComponent(code)}`);
+      }
+    };
   } catch {
     /* ignore */
   }

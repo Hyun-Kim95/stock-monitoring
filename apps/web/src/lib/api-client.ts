@@ -16,8 +16,13 @@ function adminHeaders(): HeadersInit {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${base}${path}`, { cache: "no-store" });
+export type ApiGetOptions = { admin?: boolean };
+
+export async function apiGet<T>(path: string, options?: ApiGetOptions): Promise<T> {
+  const res = await fetch(`${base}${path}`, {
+    cache: "no-store",
+    headers: options?.admin ? { ...adminHeaders() } : undefined,
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError("요청 실패", res.status, body);
@@ -33,7 +38,7 @@ export async function apiSend<T>(
   const res = await fetch(`${base}${path}`, {
     method,
     headers: {
-      "Content-Type": "application/json",
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       ...adminHeaders(),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,

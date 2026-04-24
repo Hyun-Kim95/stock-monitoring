@@ -6,6 +6,7 @@ import {
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { preHandlerHookHandler } from "fastify";
 import type { Env } from "../config.js";
+import { requireAdminToken } from "../lib/admin-pre-handler.js";
 import { sendZodError } from "../lib/errors.js";
 import { logError } from "../lib/logger.js";
 import { fetchNaverStockIntegrationMeta, toMarketLabelEn } from "../lib/naver-stock-integration.js";
@@ -214,14 +215,30 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     }
   });
 
-  app.get("/stocks", async () => {
-    const rows = await prisma.stock.findMany({
-      where: { isActive: true },
-      orderBy: { code: "asc" },
-      include: {
-        themeMaps: { include: { theme: true } },
+  app.get(
+    "/stocks",
+    {
+      preHandler: async (request, reply) => {
+        const q = request.query as { includeInactive?: string };
+        const v = String(q?.includeInactive ?? "");
+        if (v === "1" || v.toLowerCase() === "true") {
+          await requireAdminToken(request, reply, env);
+        }
       },
-    });
+    },
+    async (request) => {
+      const q = request.query as { includeInactive?: string };
+      const v = String(q?.includeInactive ?? "");
+      const includeInactive = v === "1" || v.toLowerCase() === "true";
+      const rows = await prisma.stock.findMany({
+        where: includeInactive ? {} : { isActive: true },
+        orderBy: includeInactive
+          ? ([{ isActive: "desc" as const }, { code: "asc" }] as const)
+          : { code: "asc" },
+        include: {
+          themeMaps: { include: { theme: true } },
+        },
+      });
     const marketById = await backfillMissingStockMarkets(
       prisma,
       rows.map((r) => ({ id: r.id, code: r.code, market: r.market })),
@@ -250,7 +267,8 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
         };
       }),
     };
-  });
+    },
+  );
 
   app.get("/stocks/:id/chart", async (request, reply) => {
     const { id } = request.params as { id: string };

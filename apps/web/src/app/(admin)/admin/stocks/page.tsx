@@ -49,7 +49,7 @@ export default function AdminStocksPage() {
     try {
       setErr(null);
       const [s, t] = await Promise.all([
-        apiGet<{ stocks: Stock[] }>("/stocks"),
+        apiGet<{ stocks: Stock[] }>("/stocks?includeInactive=1", { admin: true }),
         apiGet<{ themes: { id: string; name: string }[] }>("/themes"),
       ]);
       setStocks(s.stocks);
@@ -176,6 +176,15 @@ export default function AdminStocksPage() {
       await load();
     } catch (ex) {
       setErr(ex instanceof ApiError ? JSON.stringify(ex.body) : "비활성화 실패");
+    }
+  }
+
+  async function activate(id: string) {
+    try {
+      await apiSend(`/stocks/${id}`, "PATCH", { isActive: true });
+      await load();
+    } catch (ex) {
+      setErr(ex instanceof ApiError ? JSON.stringify(ex.body) : "활성화 실패");
     }
   }
 
@@ -333,11 +342,12 @@ export default function AdminStocksPage() {
         </form>
 
         <div className="panel" style={{ padding: 0 }}>
-          <div className="panel-h">활성 종목</div>
+          <div className="panel-h">등록된 종목</div>
           <div className="panel-b">
             <table className="data-table">
               <thead>
                 <tr>
+                  <th style={{ whiteSpace: "nowrap" }}>상태</th>
                   <th>코드</th>
                   <th>이름</th>
                   <th>시장</th>
@@ -349,6 +359,7 @@ export default function AdminStocksPage() {
               <tbody>
                 {stocks.map((s) => (
                   <tr key={s.id} style={{ cursor: "pointer" }} onClick={() => selectExistingStock(s)}>
+                    <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{s.isActive ? "활성" : "비활성"}</td>
                     <td>{s.code}</td>
                     <td>{s.name}</td>
                     <td style={{ fontSize: 12 }}>{s.market ?? "—"}</td>
@@ -356,17 +367,28 @@ export default function AdminStocksPage() {
                     <td style={{ color: "var(--muted-foreground)", fontSize: 12 }} title={s.industryMajorCode ?? undefined}>
                       {s.industryMajorName ?? "—"}
                     </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="danger"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void deactivate(s.id);
-                        }}
-                      >
-                        비활성
-                      </button>
+                    <td style={{ whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                      {s.isActive ? (
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => {
+                            void deactivate(s.id);
+                          }}
+                        >
+                          비활성
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="primary"
+                          onClick={() => {
+                            void activate(s.id);
+                          }}
+                        >
+                          활성
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

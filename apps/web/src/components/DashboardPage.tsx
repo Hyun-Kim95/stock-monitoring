@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ApiError, apiGet } from "@/lib/api-client";
+import { ApiError, apiGet, apiSend } from "@/lib/api-client";
+import {
+  DASHBOARD_OPEN_STOCK_CHART,
+  DASHBOARD_STOCK_CODE_QUERY,
+  type DashboardOpenStockChartDetail,
+} from "@/lib/dashboard-open-stock";
 import { formatQuotePrice } from "@/lib/format-quote";
 import {
   CHANGE_RATE_ALERT_THRESHOLDS,
@@ -38,6 +43,15 @@ type NewsItem = {
   url: string;
 };
 
+type StockSearchItem = {
+  code: string;
+  name: string;
+  market: string | null;
+  themeNames: string[];
+  industryMajorCode: string | null;
+  industryMajorName: string | null;
+};
+
 type SortKey = "name" | "price" | "changeRate" | "volume" | "foreignNetBuyVolume" | "foreignOwnershipPct";
 type SortDirection = "asc" | "desc";
 
@@ -50,6 +64,27 @@ function formatForeignNetVol(v: number | null | undefined): string {
 function formatForeignPct(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "—";
   return `${v.toFixed(3)}%`;
+}
+
+function addStockSearchErrorMessage(ex: unknown): string {
+  if (ex instanceof ApiError) {
+    const b = ex.body as { error?: { message?: string } } | undefined;
+    return b?.error?.message ?? `검색 실패 (${ex.status})`;
+  }
+  return "검색에 실패했습니다.";
+}
+
+function addStockRegisterErrorMessage(ex: unknown): string {
+  if (ex instanceof ApiError) {
+    if (ex.status === 401) {
+      return "관리자 토큰이 필요합니다. NEXT_PUBLIC_ADMIN_TOKEN을 설정하거나 관리자(종목 관리)에서 등록하세요.";
+    }
+    const b = ex.body as { error?: { code?: string; message?: string } } | undefined;
+    if (b?.error?.code === "DUPLICATE") return "이미 등록된 종목코드입니다.";
+    if (b?.error?.code === "STOCK_LIMIT") return b.error.message ?? "활성 종목 상한을 초과했습니다.";
+    return b?.error?.message ?? `요청 실패 (${ex.status})`;
+  }
+  return "등록에 실패했습니다.";
 }
 
 export function DashboardPage() {
@@ -72,6 +107,11 @@ export function DashboardPage() {
   const [changeRateAlertsOn, setChangeRateAlertsOn] = useState(false);
   const [alertThresholdPct, setAlertThresholdPct] = useState<ChangeRateAlertThresholdPct>(10);
   const [changeRateAlertErr, setChangeRateAlertErr] = useState<string | null>(null);
+  const [addStockQuery, setAddStockQuery] = useState("");
+  const [addStockItems, setAddStockItems] = useState<StockSearchItem[]>([]);
+  const [addStockSearching, setAddStockSearching] = useState(false);
+  const [addStockErr, setAddStockErr] = useState<string | null>(null);
+  const [addStockRegistering, setAddStockRegistering] = useState<string | null>(null);
 
   useChangeRateAlerts(quotes, { enabled: changeRateAlertsOn, threshold: alertThresholdPct });
 
@@ -135,6 +175,56 @@ export function DashboardPage() {
     }
   }, []);
 
+  const runAddStockSearch = useCallback(async () => {
+    const q = addStockQuery.trim();
+    if (!q) {
+      setAddStockItems([]);
+      return;
+    }
+    setAddStockSearching(true);
+    setAddStockErr(null);
+    try {
+      const data = await apiGet<{ items: StockSearchItem[] }>(
+        `/stocks/search?q=${encodeURIComponent(q)}&size=20`,
+      );
+      setAddStockItems(data.items);
+    } catch (ex) {
+      setAddStockErr(addStockSearchErrorMessage(ex));
+    } finally {
+      setAddStockSearching(false);
+    }
+  }, [addStockQuery]);
+
+  const registerAddStock = useCallback(
+    async (item: StockSearchItem) => {
+      if (stocks.some((s) => s.code === item.code)) {
+        setAddStockErr("이미 관심종목에 있는 종목입니다.");
+        return;
+      }
+      setAddStockErr(null);
+      setAddStockRegistering(item.code);
+      try {
+        const res = await apiSend<{ stock: { id: string } }>("/stocks", "POST", {
+          code: item.code,
+          name: item.name,
+          market: item.market?.trim() || null,
+          isActive: true,
+        });
+        if (res?.stock?.id) {
+          setSelectedId(res.stock.id);
+        }
+        setAddStockItems([]);
+        setAddStockQuery("");
+        await refreshStocks();
+      } catch (ex) {
+        setAddStockErr(addStockRegisterErrorMessage(ex));
+      } finally {
+        setAddStockRegistering(null);
+      }
+    },
+    [stocks, refreshStocks],
+  );
+
   useEffect(() => {
     void refreshStocks();
   }, [refreshStocks]);
@@ -147,6 +237,47 @@ export function DashboardPage() {
   }, [refreshStocks]);
 
   const selected = stocks.find((s) => s.id === selectedId) ?? null;
+
+  const openStockByCode = useCallback(
+    (rawCode: string) => {
+      const c = rawCode.trim();
+      if (!c) return;
+      const s = stocks.find(
+        (x) => x.code === c || x.code.toLowerCase() === c.toLowerCase(),
+      );
+      if (!s) return;
+      setFilterText("");
+      setThemeFilterIds([]);
+      setMarketFilter("ALL");
+      setSessionFilter("ALL");
+      setNxtFilter("ALL");
+      setSelectedId(s.id);
+    },
+    [stocks],
+  );
+
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const d = (e as CustomEvent<DashboardOpenStockChartDetail>).detail;
+      if (d?.code) openStockByCode(d.code);
+    };
+    window.addEventListener(DASHBOARD_OPEN_STOCK_CHART, onOpen);
+    return () => window.removeEventListener(DASHBOARD_OPEN_STOCK_CHART, onOpen);
+  }, [openStockByCode]);
+
+  useEffect(() => {
+    if (stocks.length === 0) return;
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get(DASHBOARD_STOCK_CODE_QUERY);
+    if (!code?.trim()) return;
+    const next = new URLSearchParams(params);
+    next.delete(DASHBOARD_STOCK_CODE_QUERY);
+    const qs = next.toString();
+    const newUrl = `${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`;
+    window.history.replaceState(null, "", newUrl);
+    openStockByCode(code);
+  }, [stocks, openStockByCode]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -432,6 +563,91 @@ export function DashboardPage() {
         <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
           <div className="panel-h">관심종목</div>
           <div className="panel-b" style={{ flex: 1, overflow: "auto" }}>
+            <div
+              style={{
+                marginBottom: 12,
+                paddingBottom: 12,
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>종목 추가</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                <input
+                  placeholder="종목명·코드 검색"
+                  value={addStockQuery}
+                  onChange={(e) => setAddStockQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void runAddStockSearch();
+                    }
+                  }}
+                  style={{ minWidth: 160, flex: "1 1 160px" }}
+                  aria-label="종목 검색"
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12 }}
+                  disabled={addStockSearching}
+                  onClick={() => void runAddStockSearch()}
+                >
+                  {addStockSearching ? "검색 중…" : "검색"}
+                </button>
+              </div>
+              {addStockErr ? (
+                <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--down)" }}>{addStockErr}</p>
+              ) : null}
+              {addStockItems.length > 0 ? (
+                <ul
+                  style={{
+                    listStyle: "none",
+                    margin: "8px 0 0",
+                    padding: 0,
+                    maxHeight: 200,
+                    overflow: "auto",
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    fontSize: 12,
+                  }}
+                >
+                  {addStockItems.map((it) => {
+                    const already = stocks.some((s) => s.code === it.code);
+                    const reg = addStockRegistering === it.code;
+                    return (
+                      <li
+                        key={it.code}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          padding: "6px 8px",
+                          borderBottom: "1px solid var(--border)",
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600 }}>{it.name}</div>
+                          <div style={{ color: "var(--muted-foreground)", fontSize: 11 }}>
+                            {it.code}
+                            {it.market ? ` · ${it.market}` : ""}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="primary"
+                          style={{ fontSize: 12, flexShrink: 0, whiteSpace: "nowrap" }}
+                          disabled={already || reg}
+                          onClick={() => void registerAddStock(it)}
+                        >
+                          {already ? "등록됨" : reg ? "등록 중…" : "등록"}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+            </div>
             <table className="data-table">
               <thead>
                 <tr>
@@ -561,20 +777,42 @@ export function DashboardPage() {
             <div
               style={{
                 borderTop: "1px solid var(--border)",
-                padding: 12,
                 flexShrink: 0,
                 minHeight: 240,
                 background: "var(--background)",
+                display: "flex",
+                flexDirection: "column",
               }}
             >
-              <PriceChartPanel
-                stockId={selected.id}
-                stockName={selected.name}
-                stockCode={selected.code}
-                industryMajorName={selected.industryMajorName}
-                themeNames={selected.themes.map((t) => t.name)}
-                liveQuote={quotes.get(selected.code)}
-              />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "flex-end",
+                  padding: "8px 12px 0",
+                  flexShrink: 0,
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12 }}
+                  aria-label="차트 닫기"
+                  onClick={() => setSelectedId(null)}
+                >
+                  차트 접기
+                </button>
+              </div>
+              <div style={{ padding: 12, paddingTop: 8, flex: 1, minHeight: 0 }}>
+                <PriceChartPanel
+                  stockId={selected.id}
+                  stockName={selected.name}
+                  stockCode={selected.code}
+                  industryMajorName={selected.industryMajorName}
+                  themeNames={selected.themes.map((t) => t.name)}
+                  liveQuote={quotes.get(selected.code)}
+                />
+              </div>
             </div>
           ) : (
             <div
