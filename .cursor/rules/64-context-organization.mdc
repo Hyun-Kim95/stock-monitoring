@@ -1,0 +1,21 @@
+---
+description: 맥락 정리(3단) 용어·HUMAN·Gate 권한 경계 — Gate·적용범위는 60이 단일 출처
+alwaysApply: true
+---
+
+# 64-context-organization
+
+## 목적
+**맥락 정리(SKILL 01~03 + Human Gate)** 는 User-level skill `context-organization`에 **절차·러브릭**으로 둔다.  
+**Gate 1/2/3의 정의·적용 범위·필수 산출**은 `60-delivery-gates.mdc` **단일 출처**이며, 본 규칙은 **용어·권한**만 정의한다.
+
+## 권한 (충돌 시 읽는 순서)
+- `01~03` 단계 완료나 본 러브릭의 Human **만으로** “Gate 통과/실패”를 **단정**하지 않는다.
+- **최종** Gate/DoD·구현 착수 가능 여부는 `60` 점검(및 `AGENTS.md`·신규 기능 예외 범위)이 따르며, **고객·전체 프로젝트(엔드투엔드)** 의 HUMAN(승인·멈춤)은 `70-client-lifecycle-default.mdc`와 `client-project-lifecycle` **단계**가 **`context-organization`보다 우선**한다.
+- 실행 계획, 미확정(지연) 선택, Owner/분담·재계획은 User-level 계획/분담 규칙과 `AGENTS.md`를 따른다.
+
+## `plan-feature`·`context-organization` 관계
+- `plan-feature` 는 **실행 절차·Gate 1 점검(스킬 내)** 를 가진다. `context-organization` 는 동일 **선행**을 **3단 라벨**로 쪼갠 **선택**일 뿐, `60`·`70`·`AGENTS` 및 User-level 계획/분담 규칙의 상위 **규칙을 대체**하지 않는다.
+
+## 상세
+- 전체: User-level skill `context-organization`

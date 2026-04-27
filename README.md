@@ -6,6 +6,7 @@ Next.js + Fastify + PostgreSQL + Prisma 모노레포. 시세는 기본 **목(moc
 
 - Node.js 20+ (권장 22 — 루트 `.nvmrc`)
 - npm 10+ (npm workspaces)
+- **잠금 파일:** CI(`.github/workflows/ci.yml`)와 배포 절차는 `package-lock.json` 기준 `npm`이 SSOT다. `pnpm-lock.yaml` 등은 팀이 pnpm을 쓰지 않으면 정리·무시해도 된다.
 - PostgreSQL 16+ (로컬 설치 또는 원격 인스턴스)
 
 ## 빠른 시작

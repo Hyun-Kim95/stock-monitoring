@@ -7,6 +7,19 @@
         "timeout": 30
       }
     ],
+    "afterAgentResponse": [
+      {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .cursor/hooks/rule-candidate-capture.ps1",
+        "timeout": 20
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .cursor/hooks/rule-approval-gate.ps1",
+        "matcher": "UserPromptSubmit",
+        "timeout": 20
+      }
+    ],
     "afterFileEdit": [
       {
         "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .cursor/hooks/ensure-obsidian-git-hook.ps1",
@@ -20,6 +33,11 @@
       },
       {
         "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .cursor/hooks/guard-completion-claims.ps1",
+        "matcher": "Write|TabWrite",
+        "timeout": 20
+      },
+      {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .cursor/hooks/guard-delivery-loop.ps1",
         "matcher": "Write|TabWrite",
         "timeout": 20
       }

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "enabled": false,
+  "lifecyclePhase": "idle",
+  "gate2ChecklistPath": "docs/qa/stage3-entry-checklist.md",
+  "blockNonEvidenceCompletion": false,
+  "lastCommand": "",
+  "lastExitCode": null,
+  "iteration": 0,
+  "maxIterations": 20,
+  "checklistItems": [
+    {
+      "id": "example-item",
+      "done": false,
+      "evidencePath": ""
+    }
+  ],
+  "updatedAt": ""
+}
