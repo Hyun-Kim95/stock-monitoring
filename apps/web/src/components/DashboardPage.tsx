@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, apiGet, apiSend } from "@/lib/api-client";
 import {
   DASHBOARD_OPEN_STOCK_CHART,
@@ -54,6 +54,60 @@ type StockSearchItem = {
 
 type SortKey = "name" | "price" | "changeRate" | "volume" | "foreignNetBuyVolume" | "foreignOwnershipPct";
 type SortDirection = "asc" | "desc";
+
+const PINNED_STOCK_IDS_KEY = "dashboard.pinnedStockIds";
+const DASHBOARD_BASIC_FILTERS_KEY = "dashboard.basicFilters";
+
+type DashboardBasicFilters = {
+  filterText: string;
+  marketFilter: string;
+  sessionFilter: string;
+  nxtFilter: string;
+  themeFilterIds: string[];
+};
+
+function readPinnedStockIdsFromStorage(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(PINNED_STOCK_IDS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((x): x is string => typeof x === "string");
+  } catch {
+    return [];
+  }
+}
+
+function writePinnedStockIdsToStorage(ids: string[]) {
+  try {
+    localStorage.setItem(PINNED_STOCK_IDS_KEY, JSON.stringify(ids));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readDashboardBasicFiltersFromStorage(): DashboardBasicFilters | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(DASHBOARD_BASIC_FILTERS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const p = parsed as Record<string, unknown>;
+    return {
+      filterText: typeof p.filterText === "string" ? p.filterText : "",
+      marketFilter: typeof p.marketFilter === "string" ? p.marketFilter : "ALL",
+      sessionFilter: typeof p.sessionFilter === "string" ? p.sessionFilter : "ALL",
+      nxtFilter: typeof p.nxtFilter === "string" ? p.nxtFilter : "ALL",
+      themeFilterIds: Array.isArray(p.themeFilterIds)
+        ? p.themeFilterIds.filter((x): x is string => typeof x === "string")
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
 
 function formatForeignNetVol(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "—";
@@ -112,8 +166,72 @@ export function DashboardPage() {
   const [addStockSearching, setAddStockSearching] = useState(false);
   const [addStockErr, setAddStockErr] = useState<string | null>(null);
   const [addStockRegistering, setAddStockRegistering] = useState<string | null>(null);
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  const addStockDialogRef = useRef<HTMLDialogElement>(null);
+  const addStockSearchInputRef = useRef<HTMLInputElement>(null);
 
   useChangeRateAlerts(quotes, { enabled: changeRateAlertsOn, threshold: alertThresholdPct });
+
+  useEffect(() => {
+    setPinnedIds(readPinnedStockIdsFromStorage());
+    const savedFilters = readDashboardBasicFiltersFromStorage();
+    if (!savedFilters) return;
+    setFilterText(savedFilters.filterText);
+    setMarketFilter(savedFilters.marketFilter);
+    setSessionFilter(savedFilters.sessionFilter);
+    setNxtFilter(savedFilters.nxtFilter);
+    setThemeFilterIds(savedFilters.themeFilterIds);
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        DASHBOARD_BASIC_FILTERS_KEY,
+        JSON.stringify({ filterText, marketFilter, sessionFilter, nxtFilter, themeFilterIds }),
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [filterText, marketFilter, sessionFilter, nxtFilter, themeFilterIds]);
+
+  useEffect(() => {
+    if (stocksLoading) return;
+    if (stocks.length === 0) return;
+    const valid = new Set(stocks.map((s) => s.id));
+    setPinnedIds((prev) => {
+      const next = prev.filter((id) => valid.has(id));
+      if (next.length === prev.length) return prev;
+      writePinnedStockIdsToStorage(next);
+      return next;
+    });
+  }, [stocks]);
+
+  const openAddStockDialog = useCallback(() => {
+    setAddStockErr(null);
+    addStockDialogRef.current?.showModal();
+    requestAnimationFrame(() => {
+      addStockSearchInputRef.current?.focus();
+    });
+  }, []);
+
+  const closeAddStockDialog = useCallback(() => {
+    addStockDialogRef.current?.close();
+  }, []);
+
+  const onAddStockDialogClose = useCallback(() => {
+    setAddStockQuery("");
+    setAddStockItems([]);
+    setAddStockErr(null);
+  }, []);
+
+  const togglePin = useCallback((stockId: string) => {
+    setPinnedIds((prev) => {
+      const has = prev.includes(stockId);
+      const next = has ? prev.filter((id) => id !== stockId) : [...prev, stockId];
+      writePinnedStockIdsToStorage(next);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     try {
@@ -204,10 +322,13 @@ export function DashboardPage() {
       setAddStockErr(null);
       setAddStockRegistering(item.code);
       try {
+        const themeNames = [...new Set(item.themeNames.map((x) => x.trim()).filter(Boolean))];
         const res = await apiSend<{ stock: { id: string } }>("/stocks", "POST", {
           code: item.code,
           name: item.name,
           market: item.market?.trim() || null,
+          industryMajorCode: item.industryMajorCode?.trim() || null,
+          themeNames,
           isActive: true,
         });
         if (res?.stock?.id) {
@@ -216,13 +337,14 @@ export function DashboardPage() {
         setAddStockItems([]);
         setAddStockQuery("");
         await refreshStocks();
+        closeAddStockDialog();
       } catch (ex) {
         setAddStockErr(addStockRegisterErrorMessage(ex));
       } finally {
         setAddStockRegistering(null);
       }
     },
-    [stocks, refreshStocks],
+    [stocks, refreshStocks, closeAddStockDialog],
   );
 
   useEffect(() => {
@@ -341,6 +463,42 @@ export function DashboardPage() {
     );
   }
 
+  const compareRows = useCallback(
+    (a: StockApi, b: StockApi) => {
+      if (!sortKey) return 0;
+      const qa = quotes.get(a.code);
+      const qb = quotes.get(b.code);
+      const dir = sortDir === "asc" ? 1 : -1;
+      if (sortKey === "name") {
+        return a.name.localeCompare(b.name, "ko") * dir;
+      }
+      if (sortKey === "price") {
+        const pa = qa?.price ?? -Infinity;
+        const pb = qb?.price ?? -Infinity;
+        return pa === pb ? 0 : pa < pb ? -dir : dir;
+      }
+      if (sortKey === "changeRate") {
+        const ra = qa?.changeRate ?? -Infinity;
+        const rb = qb?.changeRate ?? -Infinity;
+        return ra === rb ? 0 : ra < rb ? -dir : dir;
+      }
+      if (sortKey === "foreignNetBuyVolume") {
+        const fa = qa?.foreignNetBuyVolume ?? -Infinity;
+        const fb = qb?.foreignNetBuyVolume ?? -Infinity;
+        return fa === fb ? 0 : fa < fb ? -dir : dir;
+      }
+      if (sortKey === "foreignOwnershipPct") {
+        const fa = qa?.foreignOwnershipPct ?? -Infinity;
+        const fb = qb?.foreignOwnershipPct ?? -Infinity;
+        return fa === fb ? 0 : fa < fb ? -dir : dir;
+      }
+      const va = qa?.volume ?? -Infinity;
+      const vb = qb?.volume ?? -Infinity;
+      return va === vb ? 0 : va < vb ? -dir : dir;
+    },
+    [sortKey, sortDir, quotes],
+  );
+
   useEffect(() => {
     if (!selectedId) {
       setNews([]);
@@ -373,7 +531,7 @@ export function DashboardPage() {
 
   const rows = useMemo(() => {
     const q = filterText.trim().toLowerCase();
-    let list = stocks.filter((s) => {
+    const filtered = stocks.filter((s) => {
       if (themeFilterIds.length > 0) {
         if (!s.themes.some((t) => themeFilterIds.includes(t.id))) return false;
       }
@@ -392,43 +550,23 @@ export function DashboardPage() {
       );
     });
 
-    const getQuote = (code: string): QuoteSnapshot | undefined => quotes.get(code);
-
-    list = [...list].sort((a, b) => {
-      const qa = getQuote(a.code);
-      const qb = getQuote(b.code);
-      if (!sortKey) return 0;
-      const dir = sortDir === "asc" ? 1 : -1;
-      if (sortKey === "name") {
-        return a.name.localeCompare(b.name, "ko") * dir;
-      }
-      if (sortKey === "price") {
-        const pa = qa?.price ?? -Infinity;
-        const pb = qb?.price ?? -Infinity;
-        return pa === pb ? 0 : pa < pb ? -dir : dir;
-      }
-      if (sortKey === "changeRate") {
-        const ra = qa?.changeRate ?? -Infinity;
-        const rb = qb?.changeRate ?? -Infinity;
-        return ra === rb ? 0 : ra < rb ? -dir : dir;
-      }
-      if (sortKey === "foreignNetBuyVolume") {
-        const fa = qa?.foreignNetBuyVolume ?? -Infinity;
-        const fb = qb?.foreignNetBuyVolume ?? -Infinity;
-        return fa === fb ? 0 : fa < fb ? -dir : dir;
-      }
-      if (sortKey === "foreignOwnershipPct") {
-        const fa = qa?.foreignOwnershipPct ?? -Infinity;
-        const fb = qb?.foreignOwnershipPct ?? -Infinity;
-        return fa === fb ? 0 : fa < fb ? -dir : dir;
-      }
-      const va = qa?.volume ?? -Infinity;
-      const vb = qb?.volume ?? -Infinity;
-      return va === vb ? 0 : va < vb ? -dir : dir;
-    });
-
-    return list;
-  }, [stocks, filterText, themeFilterIds, marketFilter, sessionFilter, nxtFilter, sortKey, sortDir, quotes]);
+    const pinnedRows = pinnedIds
+      .map((id) => filtered.find((s) => s.id === id))
+      .filter((s): s is StockApi => s != null);
+    const pinnedSorted = [...pinnedRows].sort(compareRows);
+    const pinnedSet = new Set(pinnedRows.map((s) => s.id));
+    const unpinnedSorted = filtered.filter((s) => !pinnedSet.has(s.id)).sort(compareRows);
+    return [...pinnedSorted, ...unpinnedSorted];
+  }, [
+    stocks,
+    filterText,
+    themeFilterIds,
+    marketFilter,
+    sessionFilter,
+    nxtFilter,
+    pinnedIds,
+    compareRows,
+  ]);
 
   function toggleSort(key: SortKey) {
     if (sortKey !== key) {
@@ -561,18 +699,39 @@ export function DashboardPage() {
         }}
       >
         <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
-          <div className="panel-h">관심종목</div>
-          <div className="panel-b" style={{ flex: 1, overflow: "auto" }}>
-            <div
-              style={{
-                marginBottom: 12,
-                paddingBottom: 12,
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>종목 추가</div>
+          <div className="panel-h" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span>관심종목</span>
+            <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={openAddStockDialog}>
+              종목 추가
+            </button>
+          </div>
+          <dialog
+            ref={addStockDialogRef}
+            className="add-stock-dialog"
+            aria-labelledby="add-stock-dialog-title"
+            onClose={onAddStockDialogClose}
+          >
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <h2 id="add-stock-dialog-title" style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+                  종목 추가
+                </h2>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12 }}
+                  onClick={closeAddStockDialog}
+                  aria-label="닫기"
+                >
+                  닫기
+                </button>
+              </div>
+              <p style={{ margin: 0, fontSize: 12, color: "var(--muted-foreground)" }}>
+                종목명 또는 코드로 검색한 뒤 등록합니다.
+              </p>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                 <input
+                  ref={addStockSearchInputRef}
                   placeholder="종목명·코드 검색"
                   value={addStockQuery}
                   onChange={(e) => setAddStockQuery(e.target.value)}
@@ -596,15 +755,15 @@ export function DashboardPage() {
                 </button>
               </div>
               {addStockErr ? (
-                <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--down)" }}>{addStockErr}</p>
+                <p style={{ margin: 0, fontSize: 12, color: "var(--down)" }}>{addStockErr}</p>
               ) : null}
               {addStockItems.length > 0 ? (
                 <ul
                   style={{
                     listStyle: "none",
-                    margin: "8px 0 0",
+                    margin: 0,
                     padding: 0,
-                    maxHeight: 200,
+                    maxHeight: 240,
                     overflow: "auto",
                     border: "1px solid var(--border)",
                     borderRadius: 6,
@@ -648,51 +807,36 @@ export function DashboardPage() {
                 </ul>
               ) : null}
             </div>
-            <table className="data-table">
+          </dialog>
+          <div className="panel-b" style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "0 8px 8px" }}>
+            <table className="data-table data-table-watchlist">
               <thead>
                 <tr>
-                  <th
-                    style={{ position: "sticky", top: 0, zIndex: 2, background: "var(--card)", cursor: "pointer" }}
-                    onClick={() => toggleSort("name")}
-                  >
+                  <th style={{ width: 44, textAlign: "center" }} scope="col" title="목록 상단에 고정">
+                    고정
+                  </th>
+                  <th style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("name")}>
                     종목 {sortIndicator("name")}
                   </th>
-                  <th
-                    style={{ width: 52, textAlign: "center", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
-                    title="KOSPI / KOSDAQ / KONEX"
-                  >
+                  <th style={{ width: 52, textAlign: "center" }} scope="col" title="KOSPI / KOSDAQ / KONEX">
                     시장
                   </th>
-                  <th
-                    style={{ width: 56, textAlign: "center", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
-                    title="넥스트(NXT) 시간외 거래 시세 조회 가능 여부(KIS)"
-                  >
+                  <th style={{ width: 56, textAlign: "center" }} scope="col" title="넥스트(NXT) 시간외 거래 시세 조회 가능 여부(KIS)">
                     NXT
                   </th>
-                  <th
-                    className="num"
-                    style={{ cursor: "pointer", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
-                    onClick={() => toggleSort("price")}
-                  >
+                  <th className="num" style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("price")}>
                     현재가 {sortIndicator("price")}
                   </th>
-                  <th
-                    className="num"
-                    style={{ cursor: "pointer", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
-                    onClick={() => toggleSort("changeRate")}
-                  >
+                  <th className="num" style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("changeRate")}>
                     등락률 {sortIndicator("changeRate")}
                   </th>
-                  <th
-                    className="num"
-                    style={{ cursor: "pointer", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
-                    onClick={() => toggleSort("volume")}
-                  >
+                  <th className="num" style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("volume")}>
                     거래량 {sortIndicator("volume")}
                   </th>
                   <th
                     className="num"
-                    style={{ cursor: "pointer", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
+                    style={{ cursor: "pointer" }}
+                    scope="col"
                     onClick={() => toggleSort("foreignNetBuyVolume")}
                     title="당일 외국인 순매수 수량(주). 투자자 수급 TR 기준"
                   >
@@ -700,19 +844,20 @@ export function DashboardPage() {
                   </th>
                   <th
                     className="num"
-                    style={{ cursor: "pointer", position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}
+                    style={{ cursor: "pointer" }}
+                    scope="col"
                     onClick={() => toggleSort("foreignOwnershipPct")}
                     title="외국인 소진율(%)"
                   >
                     외인% {sortIndicator("foreignOwnershipPct")}
                   </th>
-                  <th style={{ position: "sticky", top: 0, zIndex: 2, background: "var(--card)" }}>세션</th>
+                  <th scope="col">세션</th>
                 </tr>
               </thead>
               <tbody>
                 {stocksLoading && stocks.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ padding: 24, textAlign: "center", color: "var(--muted-foreground)" }}>
+                    <td colSpan={10} style={{ padding: 24, textAlign: "center", color: "var(--muted-foreground)" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                         <span className="loading-dot" aria-hidden />
                         종목 목록을 불러오는 중…
@@ -727,6 +872,7 @@ export function DashboardPage() {
                   const crCls = cr === null ? "" : cr > 0 ? "up" : cr < 0 ? "down" : "";
                   const fn = q?.foreignNetBuyVolume ?? null;
                   const fnCls = fn === null ? "" : fn > 0 ? "up" : fn < 0 ? "down" : "";
+                  const isPinned = pinnedIds.includes(s.id);
                   return (
                     <tr
                       key={s.id}
@@ -734,6 +880,22 @@ export function DashboardPage() {
                       style={{ cursor: "pointer" }}
                       onClick={() => setSelectedId(s.id)}
                     >
+                      <td style={{ textAlign: "center", verticalAlign: "middle", width: 44 }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          style={{ fontSize: 11, padding: "2px 6px", minWidth: 32 }}
+                          aria-label={isPinned ? "상단 고정 해제" : "목록 상단에 고정"}
+                          aria-pressed={isPinned}
+                          title={isPinned ? "상단 고정 해제" : "목록 상단에 고정"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            togglePin(s.id);
+                          }}
+                        >
+                          {isPinned ? "★" : "☆"}
+                        </button>
+                      </td>
                       <td>
                         <div style={{ fontWeight: 600 }}>{s.name}</div>
                         <div style={{ color: "var(--muted-foreground)", fontSize: 11 }}>{s.code}</div>
@@ -784,25 +946,6 @@ export function DashboardPage() {
                 flexDirection: "column",
               }}
             >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "flex-end",
-                  padding: "8px 12px 0",
-                  flexShrink: 0,
-                }}
-              >
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ fontSize: 12 }}
-                  aria-label="차트 닫기"
-                  onClick={() => setSelectedId(null)}
-                >
-                  차트 접기
-                </button>
-              </div>
               <div style={{ padding: 12, paddingTop: 8, flex: 1, minHeight: 0 }}>
                 <PriceChartPanel
                   stockId={selected.id}
@@ -811,6 +954,7 @@ export function DashboardPage() {
                   industryMajorName={selected.industryMajorName}
                   themeNames={selected.themes.map((t) => t.name)}
                   liveQuote={quotes.get(selected.code)}
+                  onFold={() => setSelectedId(null)}
                 />
               </div>
             </div>

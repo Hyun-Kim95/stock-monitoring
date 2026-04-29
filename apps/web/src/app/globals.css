@@ -212,6 +212,83 @@
     @apply bg-primary/15;
   }
 
+  /** 관심종목 대시보드: sticky 헤더가 collapse 테이블에서 어긋나지 않도록 */
+  table.data-table.data-table-watchlist {
+    border-collapse: separate;
+    border-spacing: 0;
+    isolation: isolate;
+  }
+  .data-table-watchlist thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--card);
+    box-shadow: 0 1px 0 var(--border);
+  }
+  .data-table-watchlist tbody td {
+    background: var(--card);
+  }
+
+  .add-stock-dialog {
+    margin: auto;
+    max-width: min(480px, 92vw);
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0;
+    background: var(--card);
+    color: var(--card-foreground);
+    box-shadow: var(--shadow-lg);
+  }
+  .add-stock-dialog::backdrop {
+    background: color-mix(in oklab, var(--background), transparent 40%);
+  }
+
+  .chart-help {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .chart-help-btn {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    border-radius: 9999px;
+    border: 1px solid var(--border);
+    background: var(--secondary);
+    color: var(--secondary-foreground);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0;
+  }
+  .chart-help-tip {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 8px);
+    transform: translateX(-50%);
+    min-width: 230px;
+    max-width: min(360px, 80vw);
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--popover);
+    color: var(--popover-foreground);
+    font-size: 11px;
+    line-height: 1.45;
+    box-shadow: var(--shadow-md);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    z-index: 20;
+  }
+  .chart-help:hover .chart-help-tip,
+  .chart-help:focus-within .chart-help-tip {
+    opacity: 1;
+    visibility: visible;
+  }
+
   .num {
     font-variant-numeric: tabular-nums;
   }

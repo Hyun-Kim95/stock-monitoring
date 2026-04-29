@@ -418,6 +418,7 @@ export function PriceChartPanel({
   industryMajorName,
   themeNames,
   liveQuote,
+  onFold,
 }: {
   stockId: string;
   stockName: string;
@@ -426,6 +427,7 @@ export function PriceChartPanel({
   industryMajorName?: string | null;
   themeNames?: string[];
   liveQuote?: QuoteSnapshot;
+  onFold?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -920,43 +922,54 @@ export function PriceChartPanel({
     }
   }, [lwData, smaData, granularity, applyVisibleExtremaMarkers]);
 
+  const visibleThemeNames = showAllThemes ? (themeNames ?? []) : (themeNames ?? []).slice(0, 3);
+  const metaParts: string[] = [];
+  if (industryMajorName?.trim()) metaParts.push(industryMajorName.trim());
+  if (visibleThemeNames.length > 0) metaParts.push(visibleThemeNames.join(" · "));
+  const changeRate = liveQuote?.changeRate ?? null;
+  const changeRateText =
+    changeRate == null ? "등락률 —" : `등락률 ${changeRate >= 0 ? "+" : ""}${changeRate.toFixed(2)}%`;
+  const changeRateColor =
+    changeRate == null ? "var(--muted-foreground)" : changeRate > 0 ? "var(--up)" : changeRate < 0 ? "var(--down)" : "var(--text)";
+
   return (
     <div style={{ minHeight: 200 }}>
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>{stockName}</span>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>
+            {stockName}
+            {metaParts.length > 0 ? ` (${metaParts.join(" · ")})` : ""}
+          </span>
+          {themeNames && themeNames.length > 3 ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ fontSize: 11, padding: "1px 8px" }}
+              onClick={() => setShowAllThemes((v) => !v)}
+            >
+              {showAllThemes ? "접기" : `테마 더보기 +${themeNames.length - 3}`}
+            </button>
+          ) : null}
+          {liveQuote ? (
+            <span style={{ fontSize: 13, fontWeight: 700, color: changeRateColor }}>{changeRateText}</span>
+          ) : null}
           {liveQuote ? (
             <span style={{ fontSize: 16, fontWeight: 800 }}>
               현재가 {formatQuotePrice(liveQuote)}
             </span>
           ) : null}
+          {onFold ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ fontSize: 11, padding: "1px 8px", marginLeft: "auto" }}
+              aria-label="차트 닫기"
+              onClick={onFold}
+            >
+              차트 접기
+            </button>
+          ) : null}
         </div>
-        {industryMajorName || (themeNames && themeNames.length > 0) ? (
-          <div style={{ fontSize: 11, color: "var(--muted-foreground)", marginBottom: 8, lineHeight: 1.45 }}>
-            {industryMajorName ? (
-              <>
-                <strong style={{ color: "var(--text)", fontWeight: 600 }}>대분류</strong> {industryMajorName}
-              </>
-            ) : null}
-            {industryMajorName && themeNames && themeNames.length > 0 ? " · " : null}
-            {themeNames && themeNames.length > 0 ? (
-              <>
-                <strong style={{ color: "var(--text)", fontWeight: 600 }}>테마</strong>{" "}
-                {(showAllThemes ? themeNames : themeNames.slice(0, 3)).join(" · ")}
-                {themeNames.length > 3 ? (
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ fontSize: 11, padding: "1px 8px", marginLeft: 6 }}
-                    onClick={() => setShowAllThemes((v) => !v)}
-                  >
-                    {showAllThemes ? "접기" : `더보기 +${themeNames.length - 3}`}
-                  </button>
-                ) : null}
-              </>
-            ) : null}
-          </div>
-        ) : null}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>봉 단위</span>
           {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
@@ -1014,25 +1027,30 @@ export function PriceChartPanel({
           {granularity === "minute" && showMinuteBackfillBadge ? (
             <span className="badge">분봉 보강 중…</span>
           ) : null}
+          <span className="chart-help">
+            <button type="button" className="chart-help-btn" aria-label="시세 안내" aria-describedby="chart-tip-storage">
+              ?
+            </button>
+            <span id="chart-tip-storage" role="tooltip" className="chart-help-tip">
+              시세는 약 1초 간격으로 저장됩니다. 분봉은 빈 분을 건너뛰어 표시될 수 있고, 봉 개수는 DB에 저장된
+              기간에 따라 줄어들 수 있습니다.
+            </span>
+          </span>
+          {lwData.length > 0 ? (
+            <span className="chart-help">
+              <button type="button" className="chart-help-btn" aria-label="이동평균 안내" aria-describedby="chart-tip-ma">
+                ?
+              </button>
+              <span id="chart-tip-ma" role="tooltip" className="chart-help-tip">
+                이동평균(종가) 5 · 20 · 200
+                {granularity === "day"
+                  ? " — 일봉이면 통상의 5·20·200일선과 동일"
+                  : " — 선택한 봉 단위 기준 5·20·200봉"}
+              </span>
+            </span>
+          ) : null}
         </div>
       </div>
-      <p style={{ margin: "0 0 8px", fontSize: 11, color: "var(--muted-foreground)", lineHeight: 1.45 }}>
-        시세는 약 1초 간격으로 저장됩니다. 분봉은 빈 분을 건너뛰어 표시될 수 있고, 봉 개수는 DB에 저장된 기간에
-        따라 줄어들 수 있습니다.
-      </p>
-      {lwData.length > 0 ? (
-        <p style={{ margin: "0 0 8px", fontSize: 11, color: "var(--muted-foreground)", lineHeight: 1.45 }}>
-          <span style={{ fontWeight: 600, color: "var(--text)" }}>이동평균(종가)</span>{" "}
-          <span style={{ color: "#f6c344" }}>5</span>
-          {" · "}
-          <span style={{ color: "#29b6f6" }}>20</span>
-          {" · "}
-          <span style={{ color: "#ab47bc" }}>200</span>
-          {granularity === "day"
-            ? " — 일봉이면 통상의 5·20·200일선과 동일"
-            : " — 선택한 봉 단위 기준 5·20·200봉"}
-        </p>
-      ) : null}
       {err ? <div style={{ color: "var(--down)", fontSize: 12 }}>{err}</div> : null}
       {loading && !err ? (
         <div
