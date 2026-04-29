@@ -350,6 +350,8 @@ foreach ($repo in $repositories) {
 
         Ensure-Directory -Path $targetPath
 
+        # Only sync text docs that Obsidian can read reliably in this workflow.
+        $includeFiles = @('*.md', '*.txt')
         $robocopyOptions = @('/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP')
         if ($repoSyncMode -eq 'mirror') {
             # mirror: destination entries not present in source are deleted.
@@ -358,7 +360,7 @@ foreach ($repo in $repositories) {
             # safe: copy recursively without deleting destination-only files.
             $robocopyOptions = @('/E') + $robocopyOptions
         }
-        robocopy $sourcePath $targetPath @robocopyOptions | Out-Null
+        robocopy $sourcePath $targetPath $includeFiles @robocopyOptions | Out-Null
         $exitCode = $LASTEXITCODE
         if ($exitCode -ge 8) {
             throw "robocopy failed for '$sourcePath' -> '$targetPath' (exit code: $exitCode)"
