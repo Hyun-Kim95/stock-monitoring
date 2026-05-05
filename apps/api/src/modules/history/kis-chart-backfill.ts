@@ -8,6 +8,8 @@ import {
   fetchKisTimeItemChartPrice,
   parseKisNumber,
 } from "../market-data/kis/kis-rest.js";
+import { kstYmdForInstant } from "../market-data/kis/kis-trading-session.js";
+import { isKrxScheduledFullDayClosureKstYmd } from "../market-data/krx-scheduled-closure-ymd.js";
 import { redisAcquireLock, redisReleaseLock, redisWaitUntilUnlocked } from "../../lib/redis.js";
 import { redisGetJson, redisSetJson } from "../../lib/redis.js";
 
@@ -794,6 +796,9 @@ export async function maybeBackfillKisMinuteToday(
 
   const now = Date.now();
   if (!force && now < (minuteBackfillNotBefore.get(stockCode) ?? 0)) return;
+
+  /** KST 전일 휴장에는 KIS 당일분봉을 넣지 않음(빈·전일 데이터가 섞여 버킷이 생기는 것 방지). `force`도 덮지 않음. */
+  if (isKrxScheduledFullDayClosureKstYmd(kstYmdForInstant(new Date()))) return;
 
   const kstDate = formatKstDateOnly(new Date());
   const dayStart = new Date(`${kstDate}T00:00:00+09:00`);

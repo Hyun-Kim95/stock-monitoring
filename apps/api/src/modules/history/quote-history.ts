@@ -8,6 +8,8 @@ import {
   type ChartMinuteFrame,
   type ChartRange,
 } from "@stock-monitoring/shared";
+import { kstYmdForInstant } from "../market-data/kis/kis-trading-session.js";
+import { isKrxScheduledFullDayClosureKstYmd } from "../market-data/krx-scheduled-closure-ymd.js";
 
 export type { ChartGranularity, ChartRange };
 
@@ -240,10 +242,19 @@ export async function fetchChart(
     })(),
   ]);
 
-  const candles = mapOhlcRows(rows);
+  /** 분봉: 봉 시각이 속한 KST 달력일이 전일 휴장이면 제외(DB에 잘못 쌓인 틱·과거 백필 잔재). */
+  const rowsForCandles =
+    granularity === "minute"
+      ? rows.filter((r) => !isKrxScheduledFullDayClosureKstYmd(kstYmdForInstant(r.period)))
+      : rows;
+  const candles = mapOhlcRows(rowsForCandles);
   const b0 = bounds[0];
-  const historyFirstAt = b0?.min_t?.toISOString() ?? null;
-  const historyLastAt = b0?.max_t?.toISOString() ?? null;
+  let historyFirstAt = b0?.min_t?.toISOString() ?? null;
+  let historyLastAt = b0?.max_t?.toISOString() ?? null;
+  if (granularity === "minute" && candles.length > 0) {
+    historyFirstAt = candles[0].t;
+    historyLastAt = candles[candles.length - 1].t;
+  }
 
   let hintKo: string | null = null;
   if (granularity === "minute") {
@@ -294,6 +305,8 @@ export function createQuoteHistoryRecorder(prisma: PrismaClient, opts: { throttl
       for (const q of quotes) {
         // 정규장(OPEN) + 프리마켓(PRE, KST 7:30~9:00)만 저장. KIS는 PRE 동안에도 호가가 나옴.
         if (q.marketSession !== "OPEN" && q.marketSession !== "PRE") continue;
+        // 세션 오판 시에도 KST 달력 휴장일에는 DB에 쌓지 않음(공휴일·EXTRA 목록).
+        if (isKrxScheduledFullDayClosureKstYmd(kstYmdForInstant(new Date()))) continue;
         if (!Number.isFinite(q.price) || q.price <= 0) continue;
         const code = q.symbol;
         const last = lastByCode.get(code) ?? 0;

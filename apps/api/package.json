@@ -15,6 +15,7 @@
     "@fastify/websocket": "^11.0.2",
     "@stock-monitoring/db": "*",
     "@stock-monitoring/shared": "*",
+    "date-holidays": "^3.28.0",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1",
     "redis": "^5.11.0",

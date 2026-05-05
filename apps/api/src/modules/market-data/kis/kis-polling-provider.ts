@@ -11,9 +11,16 @@ import {
   parseKisNumber,
   parseKisSignedFluctuation,
 } from "./kis-rest.js";
+import {
+  kstYmdForInstant,
+  readStckBsopYmd,
+  shouldForceClosedMarketSessionByBsop,
+  type KrxSessionSlot,
+} from "./kis-trading-session.js";
+import { isKrxScheduledFullDayClosureKstYmd } from "../krx-scheduled-closure-ymd.js";
 
 type SessionState = "OPEN" | "CLOSED" | "PRE" | "AFTER";
-type SessionSlot = "OFF" | "PRE" | "REGULAR" | "NXT" | "AFTER";
+type SessionSlot = KrxSessionSlot;
 const KIS_TOKEN_CACHE_FILE = path.join(os.homedir(), ".stock-monitoring", "kis-token-cache.json");
 /** NX 미적격(false) 고정 방지: 일정 시간 후 재판정 */
 const NX_FALSE_RETRY_MS = 10 * 60_000;
@@ -77,9 +84,7 @@ function parsePositive(out: Record<string, string | undefined>, ...keys: string[
 }
 
 function kstYmdNow(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" })
-    .format(new Date())
-    .replace(/-/g, "");
+  return kstYmdForInstant(new Date());
 }
 
 function pickForeignNetByDate(
@@ -317,6 +322,8 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
       const gap = Math.max(0, opts.quoteRequestGapMs);
       let hitRateLimit = false;
       const slot = kstSessionSlotNow();
+      const todayYmd = kstYmdForInstant(new Date());
+      const calendarFullDayClosed = isKrxScheduledFullDayClosureKstYmd(todayYmd);
       for (let i = 0; i < symbols.length; i++) {
         const s = symbols[i]!;
         if (i > 0) await sleep(gap);
@@ -363,6 +370,11 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
           else if (slot === "REGULAR") marketSession = "OPEN";
           else if (slot === "NXT") marketSession = usedNx ? "OPEN" : "CLOSED";
           else if (slot === "AFTER") marketSession = usedNx ? "AFTER" : "CLOSED";
+
+          const bsop = readStckBsopYmd(out);
+          if (calendarFullDayClosed || shouldForceClosedMarketSessionByBsop(slot, bsop, todayYmd)) {
+            marketSession = "CLOSED";
+          }
 
           batch.push(mapOutput(s.code, s.name, out, marketSession));
         } catch (e) {

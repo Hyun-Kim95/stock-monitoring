@@ -17,6 +17,8 @@
     "db:migrate:resolve:industry-applied": "node scripts/prisma-with-root-env.mjs migrate resolve --applied 20260325093000_add_stock_industry_major_code",
     "db:push": "node scripts/prisma-with-root-env.mjs db push",
     "db:seed": "node scripts/prisma-with-root-env.mjs db seed",
+    "db:delete-quote-history-kst": "node scripts/db/delete-quote-history-kst-ymd.mjs",
+    "db:inspect-minute-period-kst": "node scripts/db/inspect-minute-period-kst.mjs",
     "typecheck": "tsc --noEmit -p apps/api/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json && tsc --noEmit -p packages/shared/tsconfig.json && tsc --noEmit -p packages/db/tsconfig.json",
     "lint": "eslint apps packages",
     "test": "npm run test --workspaces --if-present"

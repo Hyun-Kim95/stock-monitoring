@@ -182,6 +182,7 @@ function mergeLiveMinuteBar(
   const lastBucket = kstNMinuteBucketUtcSec(new Date(lastTs * 1000), minuteFrame);
 
   if (lastBucket === nowBucket) {
+    if (quote.marketSession !== "OPEN" && quote.marketSession !== "PRE") return candles;
     out[out.length - 1] = {
       time: lastBucket,
       open: last.open,
@@ -205,6 +206,7 @@ function mergeLiveMinuteBar(
   }
 
   /* 서버 봉 시각이 클라이언트 ‘현재 분’보다 앞서 보이는 경우(시계·파싱 차이): 마지막 봉만 WS로 맞춤 */
+  if (quote.marketSession !== "OPEN" && quote.marketSession !== "PRE") return candles;
   out[out.length - 1] = {
     time: last.time,
     open: last.open,
@@ -225,6 +227,7 @@ function mergeLiveIntoAggregatedLastBar(
   if (granularity === "minute" || !quote || quote.symbol !== stockCode) return candles;
   const p = Math.round(quote.price);
   if (!Number.isFinite(p) || p <= 0 || candles.length === 0) return candles;
+  if (quote.marketSession !== "OPEN" && quote.marketSession !== "PRE") return candles;
 
   const last = candles[candles.length - 1];
   const lastDate = new Date((last.time as number) * 1000);
@@ -482,6 +485,12 @@ export function PriceChartPanel({
   const markerApiRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   /** 분봉 suppression 중 복원용 직전 logical range */
   const minuteLastVisibleLogicalRangeRef = useRef<{ from: number; to: number } | null>(null);
+  /** setInterval 콜백이 최신 시세 세션을 보도록 (장외·휴장 CLOSED 시 soft 폴링 중단) */
+  const liveQuoteRef = useRef<QuoteSnapshot | undefined>(liveQuote);
+
+  useEffect(() => {
+    liveQuoteRef.current = liveQuote;
+  }, [liveQuote]);
 
   const bumpMinuteViewportSuppress = () => {
     minuteViewportSuppressFollowUntilRef.current = Date.now() + MINUTE_LATEST_FOLLOW_SUPPRESS_MS;
@@ -558,6 +567,8 @@ export function PriceChartPanel({
     if (granularity !== "minute") return;
     const id = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
+      const q = liveQuoteRef.current;
+      if (q && q.marketSession !== "OPEN" && q.marketSession !== "PRE") return;
       void load({ soft: true });
     }, 3_000);
     return () => window.clearInterval(id);

@@ -1,5 +1,7 @@
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
 import type { MarketDataProvider } from "./types.js";
+import { kstYmdForInstant } from "./kis/kis-trading-session.js";
+import { isKrxScheduledFullDayClosureKstYmd } from "./krx-scheduled-closure-ymd.js";
 
 /** 국내장 세션(KST): PRE / OPEN / AFTER / CLOSED */
 function sessionNowKst(): "OPEN" | "CLOSED" | "PRE" | "AFTER" {
@@ -13,6 +15,8 @@ function sessionNowKst(): "OPEN" | "CLOSED" | "PRE" | "AFTER" {
 
   const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
   if (weekday === "Sat" || weekday === "Sun") return "CLOSED";
+
+  if (isKrxScheduledFullDayClosureKstYmd(kstYmdForInstant(new Date()))) return "CLOSED";
 
   const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
   const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
