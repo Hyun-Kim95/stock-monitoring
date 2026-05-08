@@ -18,7 +18,6 @@ import {
 import { useQuotesWebSocket } from "@/hooks/useQuotesWebSocket";
 import { PriceChartPanel } from "@/components/PriceChartPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import type { QuoteSnapshot } from "@stock-monitoring/shared";
 
 type ThemeBrief = { id: string; name: string };
 
@@ -64,6 +63,16 @@ type DashboardBasicFilters = {
   sessionFilter: string;
   nxtFilter: string;
   themeFilterIds: string[];
+};
+
+type DashboardPreferenceApi = {
+  pinnedStockIds: string[];
+  filterText: string;
+  marketFilter: string;
+  sessionFilter: string;
+  nxtFilter: string;
+  themeFilterIds: string[];
+  changeAlertThreshold: number | null;
 };
 
 function readPinnedStockIdsFromStorage(): string[] {
@@ -142,7 +151,7 @@ function addStockRegisterErrorMessage(ex: unknown): string {
 }
 
 export function DashboardPage() {
-  const { quotes, connected, statusMsg, statusLoading } = useQuotesWebSocket();
+  const { quotes, connected, statusMsg } = useQuotesWebSocket();
   const [stocks, setStocks] = useState<StockApi[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 비어 있으면 테마 필터 없음. 값이 있으면 해당 테마 중 하나라도 있는 종목만 표시(OR). */
@@ -184,6 +193,31 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const data = await apiGet<{ preference: DashboardPreferenceApi }>("/me/preferences");
+        if (!mounted) return;
+        const p = data.preference;
+        setPinnedIds(p.pinnedStockIds);
+        setFilterText(p.filterText);
+        setMarketFilter(p.marketFilter);
+        setSessionFilter(p.sessionFilter);
+        setNxtFilter(p.nxtFilter);
+        setThemeFilterIds(p.themeFilterIds);
+        if (p.changeAlertThreshold != null) {
+          setAlertThresholdPct(parseChangeRateAlertThreshold(String(p.changeAlertThreshold)));
+        }
+      } catch {
+        /* ignore - local fallback 사용 */
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     try {
       localStorage.setItem(
         DASHBOARD_BASIC_FILTERS_KEY,
@@ -193,6 +227,21 @@ export function DashboardPage() {
       /* ignore */
     }
   }, [filterText, marketFilter, sessionFilter, nxtFilter, themeFilterIds]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void apiSend("/me/preferences", "PUT", {
+        pinnedStockIds: pinnedIds,
+        filterText,
+        marketFilter,
+        sessionFilter,
+        nxtFilter,
+        themeFilterIds,
+        changeAlertThreshold: alertThresholdPct,
+      }).catch(() => undefined);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [pinnedIds, filterText, marketFilter, sessionFilter, nxtFilter, themeFilterIds, alertThresholdPct]);
 
   useEffect(() => {
     if (stocksLoading) return;

@@ -6,7 +6,12 @@ import websocket from "@fastify/websocket";
 import { prisma } from "@stock-monitoring/db";
 import type { QuoteSnapshot } from "@stock-monitoring/shared";
 import type { Env } from "./config.js";
-import { createAdminPreHandler } from "./lib/admin-pre-handler.js";
+import {
+  createRequireAuthPreHandler,
+  getRequestAuth,
+  resolveAuthFromRequest,
+  setRequestAuth,
+} from "./lib/auth-session.js";
 import { registerWriteRateLimit } from "./lib/write-rate-limit.js";
 import { createMarketDataProvider, marketStatusMessage } from "./modules/market-data/create-provider.js";
 import { NewsMemoryCache } from "./modules/news/news-cache.js";
@@ -17,6 +22,8 @@ import { registerThemeRoutes } from "./routes/themes.js";
 import { registerNewsRuleRoutes } from "./routes/news-rules.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerNewsRoutes } from "./routes/news.js";
+import { registerAuthRoutes } from "./routes/auth.js";
+import { registerPreferenceRoutes } from "./routes/preferences.js";
 import { createQuoteHistoryRecorder } from "./modules/history/quote-history.js";
 import { runStartupMinuteChartPrewarmQueue, runStartupQuoteHistoryPrep } from "./modules/history/startup-quote-history.js";
 import { syncOfficialNamesBatch } from "./lib/naver-official-name-sync.js";
@@ -28,7 +35,20 @@ export async function createApiApplication(env: Env): Promise<{
   /** listen() 직후 호출: 히스토리 정리·KIS 당일분봉 백필 후 시세 폴링 시작 (시간이 걸려도 HTTP는 이미 열림) */
   runAfterListen: () => Promise<void>;
 }> {
-  const adminPre = createAdminPreHandler(env);
+  const requireAuthPre = createRequireAuthPreHandler();
+  const adminPre = (async (request, reply) => {
+    if (env.ADMIN_API_TOKEN) {
+      const auth = request.headers.authorization;
+      if (auth === `Bearer ${env.ADMIN_API_TOKEN}`) return;
+    }
+    const session = getRequestAuth(request);
+    if (!session) {
+      return reply.status(401).send({ error: { code: "UNAUTHORIZED", message: "로그인이 필요합니다." } });
+    }
+    if (session.role !== "OWNER" && session.role !== "ADMIN") {
+      return reply.status(403).send({ error: { code: "FORBIDDEN", message: "관리 권한이 필요합니다." } });
+    }
+  }) as import("fastify").preHandlerHookHandler;
   let market = createMarketDataProvider(env, { providerSetting: "mock", pollIntervalMs: 1000 });
   const quoteCache = new QuoteCache();
   const newsCache = new NewsMemoryCache();
@@ -101,10 +121,10 @@ export async function createApiApplication(env: Env): Promise<{
       });
     }
     const provRow = await prisma.systemSetting.findUnique({
-      where: { settingKey: "market_data.provider" },
+      where: { tenantId_settingKey: { tenantId: env.GLOBAL_TENANT_ID, settingKey: "market_data.provider" } },
     });
     const pollRow = await prisma.systemSetting.findUnique({
-      where: { settingKey: "market_data.poll_interval_ms" },
+      where: { tenantId_settingKey: { tenantId: env.GLOBAL_TENANT_ID, settingKey: "market_data.poll_interval_ms" } },
     });
     const pollMs = Math.min(60_000, Math.max(500, Number(pollRow?.settingValue ?? 1000)));
 
@@ -115,7 +135,8 @@ export async function createApiApplication(env: Env): Promise<{
     });
     lastBroadcastMarketStatus = undefined;
     market.onTick(handleMarketQuotes);
-    market.start(stocks.map((s) => ({ code: s.code, name: s.name })));
+    const uniqStocks = [...new Map(stocks.map((s) => [s.code, s])).values()];
+    market.start(uniqStocks.map((s) => ({ code: s.code, name: s.name })));
     quoteCache.setMany(market.getQuotes());
     broadcastJson({ type: "snapshot", quotes: quoteCache.snapshot() });
     broadcastJson({
@@ -129,7 +150,7 @@ export async function createApiApplication(env: Env): Promise<{
 
   async function refreshBroadcastThrottle() {
     const row = await prisma.systemSetting.findUnique({
-      where: { settingKey: "realtime.broadcast_throttle_ms" },
+      where: { tenantId_settingKey: { tenantId: env.GLOBAL_TENANT_ID, settingKey: "realtime.broadcast_throttle_ms" } },
     });
     if (row) {
       const n = Number(row.settingValue);
@@ -147,9 +168,9 @@ export async function createApiApplication(env: Env): Promise<{
   app.addHook("onClose", async () => {
     try {
       await prisma.systemSetting.upsert({
-        where: { settingKey: SETTING_LAST_STOPPED_AT },
+        where: { tenantId_settingKey: { tenantId: env.GLOBAL_TENANT_ID, settingKey: SETTING_LAST_STOPPED_AT } },
         update: { settingValue: new Date().toISOString() },
-        create: { settingKey: SETTING_LAST_STOPPED_AT, settingValue: new Date().toISOString() },
+        create: { tenantId: env.GLOBAL_TENANT_ID, settingKey: SETTING_LAST_STOPPED_AT, settingValue: new Date().toISOString() },
       });
     } catch (e) {
       logError("persist last stopped at failed", { err: String(e) });
@@ -161,26 +182,35 @@ export async function createApiApplication(env: Env): Promise<{
     credentials: true,
   });
 
+  app.addHook("onRequest", async (request) => {
+    const auth = await resolveAuthFromRequest(prisma, request).catch(() => null);
+    setRequestAuth(request, auth);
+  });
+
   registerWriteRateLimit(app, { max: 120, windowMs: 60_000 });
 
   await registerHealthRoutes(app);
+  await registerAuthRoutes(app, { prisma, env });
 
   await registerStockRoutes(app, {
     prisma,
     adminPre,
+    requireAuthPre,
     reloadMarket: reloadMarketFromDb,
     env,
     getNxEligibilityByCode: () => market.getNxEligibilityByCode?.() ?? {},
   });
-  await registerThemeRoutes(app, { prisma, adminPre });
-  await registerNewsRuleRoutes(app, { prisma, adminPre, newsCache });
-  await registerSettingsRoutes(app, { prisma, adminPre, reloadMarket: reloadMarketFromDb });
+  await registerThemeRoutes(app, { prisma, adminPre, requireAuthPre });
+  await registerNewsRuleRoutes(app, { prisma, adminPre, requireAuthPre, newsCache });
+  await registerSettingsRoutes(app, { prisma, adminPre, requireAuthPre, reloadMarket: reloadMarketFromDb });
   await registerNewsRoutes(app, {
     prisma,
+    requireAuthPre,
     newsCache,
     naverClientId: env.NAVER_CLIENT_ID,
     naverClientSecret: env.NAVER_CLIENT_SECRET,
   });
+  await registerPreferenceRoutes(app, { prisma, requireAuthPre });
 
   await app.register(websocket);
   app.get("/ws/quotes", { websocket: true }, (socket, _req) => {

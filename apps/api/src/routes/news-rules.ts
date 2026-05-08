@@ -4,24 +4,29 @@ import type { preHandlerHookHandler } from "fastify";
 import { NewsRuleCreateSchema, NewsRuleUpdateSchema } from "@stock-monitoring/shared";
 import { sendZodError } from "../lib/errors.js";
 import type { NewsMemoryCache } from "../modules/news/news-cache.js";
+import { getRequestAuth } from "../lib/auth-session.js";
 
 type Ctx = {
   prisma: PrismaClient;
   adminPre: preHandlerHookHandler;
+  requireAuthPre: preHandlerHookHandler;
   newsCache?: NewsMemoryCache;
 };
 
 export async function registerNewsRuleRoutes(app: FastifyInstance, ctx: Ctx) {
-  const { prisma, adminPre, newsCache } = ctx;
+  const { prisma, adminPre, requireAuthPre, newsCache } = ctx;
 
-  app.get("/news-rules", async () => {
+  app.get("/news-rules", { preHandler: [requireAuthPre] }, async (request) => {
+    const auth = getRequestAuth(request)!;
     const rules = await prisma.newsSourceRule.findMany({
+      where: { tenantId: auth.tenantId },
       orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
     });
     return { rules };
   });
 
   app.post("/news-rules", { preHandler: [adminPre] }, async (request, reply) => {
+    const auth = getRequestAuth(request)!;
     const parsed = NewsRuleCreateSchema.safeParse(request.body);
     if (!parsed.success) return sendZodError(reply, parsed.error);
     const b = parsed.data;
@@ -37,6 +42,7 @@ export async function registerNewsRuleRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     const rule = await prisma.newsSourceRule.create({
       data: {
+        tenantId: auth.tenantId,
         scope: b.scope as NewsRuleScope,
         stockId: b.stockId ?? null,
         includeKeyword: b.includeKeyword ?? null,
@@ -50,10 +56,13 @@ export async function registerNewsRuleRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.patch("/news-rules/:id", { preHandler: [adminPre] }, async (request, reply) => {
+    const auth = getRequestAuth(request)!;
     const { id } = request.params as { id: string };
     const parsed = NewsRuleUpdateSchema.safeParse(request.body);
     if (!parsed.success) return sendZodError(reply, parsed.error);
     try {
+      const existing = await prisma.newsSourceRule.findFirst({ where: { id, tenantId: auth.tenantId } });
+      if (!existing) throw new Error("not found");
       const rule = await prisma.newsSourceRule.update({ where: { id }, data: parsed.data });
       return { rule };
     } catch {
@@ -62,8 +71,11 @@ export async function registerNewsRuleRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.delete("/news-rules/:id", { preHandler: [adminPre] }, async (request, reply) => {
+    const auth = getRequestAuth(request)!;
     const { id } = request.params as { id: string };
     try {
+      const existing = await prisma.newsSourceRule.findFirst({ where: { id, tenantId: auth.tenantId } });
+      if (!existing) throw new Error("not found");
       await prisma.newsSourceRule.delete({ where: { id } });
       newsCache?.invalidate();
       return reply.status(204).send();

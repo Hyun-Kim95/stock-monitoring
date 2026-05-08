@@ -7,9 +7,11 @@ import { normalizeIndustryMajorLabel } from "../lib/naver-industry-major-name.js
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../../../.env.local") });
+const TENANT_ID = process.env.GLOBAL_TENANT_ID?.trim() || "default-tenant";
 
 async function main() {
   const themes = await prisma.theme.findMany({
+    where: { tenantId: TENANT_ID },
     select: { id: true, name: true, isActive: true, createdAt: true, description: true },
     orderBy: { createdAt: "asc" },
   });
@@ -45,17 +47,17 @@ async function main() {
 
     for (const lose of losers) {
       const links = await prisma.stockThemeMap.findMany({
-        where: { themeId: lose.id },
-        select: { stockId: true },
+        where: { tenantId: TENANT_ID, themeId: lose.id },
+        select: { stockId: true, tenantId: true },
       });
       if (links.length > 0) {
         await prisma.stockThemeMap.createMany({
-          data: links.map((l) => ({ stockId: l.stockId, themeId: keep.id })),
+          data: links.map((l) => ({ tenantId: l.tenantId, stockId: l.stockId, themeId: keep.id })),
           skipDuplicates: true,
         });
         remappedLinks += links.length;
       }
-      await prisma.stockThemeMap.deleteMany({ where: { themeId: lose.id } });
+      await prisma.stockThemeMap.deleteMany({ where: { tenantId: TENANT_ID, themeId: lose.id } });
       await prisma.theme.delete({ where: { id: lose.id } });
       mergedThemes += 1;
       console.log(`[theme-normalize] merge ${lose.name} -> ${keep.name}`);

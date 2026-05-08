@@ -52,17 +52,25 @@ const THEME_SEED: { name: string; description: string }[] = [
 ];
 
 async function main() {
+  const defaultTenantId = "default-tenant";
+  await prisma.tenant.upsert({
+    where: { id: defaultTenantId },
+    update: { name: "Default Tenant" },
+    create: { id: defaultTenantId, name: "Default Tenant" },
+  });
+
   const stockByCode = new Map<string, { id: string }>();
 
   for (const row of STOCK_SEED) {
     const s = await prisma.stock.upsert({
-      where: { code: row.code },
+      where: { tenantId_code: { tenantId: defaultTenantId, code: row.code } },
       update: {
         name: row.name,
         searchAlias: row.searchAlias,
         isActive: true,
       },
       create: {
+        tenantId: defaultTenantId,
         code: row.code,
         name: row.name,
         searchAlias: row.searchAlias,
@@ -75,14 +83,14 @@ async function main() {
   const themeByName = new Map<string, { id: string }>();
   for (const t of THEME_SEED) {
     const row = await prisma.theme.upsert({
-      where: { name: t.name },
+      where: { tenantId_name: { tenantId: defaultTenantId, name: t.name } },
       update: { description: t.description, isActive: true },
-      create: { name: t.name, description: t.description, isActive: true },
+      create: { tenantId: defaultTenantId, name: t.name, description: t.description, isActive: true },
     });
     themeByName.set(t.name, { id: row.id });
   }
 
-  await prisma.stockThemeMap.deleteMany({});
+  await prisma.stockThemeMap.deleteMany({ where: { tenantId: defaultTenantId } });
   const mapRows: { stockId: string; themeId: string }[] = [];
   for (const row of STOCK_SEED) {
     const sid = stockByCode.get(row.code)?.id;
@@ -92,12 +100,15 @@ async function main() {
       if (tid) mapRows.push({ stockId: sid, themeId: tid });
     }
   }
-  await prisma.stockThemeMap.createMany({ data: mapRows });
+  await prisma.stockThemeMap.createMany({
+    data: mapRows.map((x) => ({ ...x, tenantId: defaultTenantId })),
+  });
 
-  await prisma.newsSourceRule.deleteMany({});
+  await prisma.newsSourceRule.deleteMany({ where: { tenantId: defaultTenantId } });
   await prisma.newsSourceRule.createMany({
     data: [
       {
+        tenantId: defaultTenantId,
         scope: NewsRuleScope.GLOBAL,
         stockId: null,
         includeKeyword: null,
@@ -118,9 +129,9 @@ async function main() {
   ];
   for (const { key, value } of settings) {
     await prisma.systemSetting.upsert({
-      where: { settingKey: key },
+      where: { tenantId_settingKey: { tenantId: defaultTenantId, settingKey: key } },
       update: { settingValue: value },
-      create: { settingKey: key, settingValue: value },
+      create: { tenantId: defaultTenantId, settingKey: key, settingValue: value },
     });
   }
 }

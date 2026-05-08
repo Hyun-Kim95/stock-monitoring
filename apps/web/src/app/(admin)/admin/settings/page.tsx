@@ -41,9 +41,7 @@ export default function AdminSettingsPage() {
       await load();
     } catch (ex) {
       if (ex instanceof ApiError && ex.status === 401) {
-        setErr(
-          "관리자 인증 실패: 헤더에 토큰이 없거나 서버의 ADMIN_API_TOKEN과 다릅니다. 루트 .env의 NEXT_PUBLIC_ADMIN_TOKEN을 ADMIN_API_TOKEN과 동일하게 맞춘 뒤 dev 서버를 다시 실행하세요.",
-        );
+        setErr("로그인이 만료되었거나 인증되지 않았습니다. 다시 로그인해 주세요.");
         return;
       }
       if (ex instanceof ApiError) {

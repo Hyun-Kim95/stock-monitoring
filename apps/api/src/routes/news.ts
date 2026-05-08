@@ -9,23 +9,27 @@ import {
   filterNewsPublishedWithinDays,
 } from "../modules/news/process.js";
 import { trySyncStockOfficialName } from "../lib/naver-official-name-sync.js";
+import type { preHandlerHookHandler } from "fastify";
+import { getRequestAuth } from "../lib/auth-session.js";
 
 /** 관련 뉴스: 최근 약 3개월(90일) */
 const NEWS_MAX_AGE_DAYS = 90;
 
 type Ctx = {
   prisma: PrismaClient;
+  requireAuthPre: preHandlerHookHandler;
   newsCache: NewsMemoryCache;
   naverClientId?: string;
   naverClientSecret?: string;
 };
 
 export async function registerNewsRoutes(app: FastifyInstance, ctx: Ctx) {
-  const { prisma, newsCache, naverClientId, naverClientSecret } = ctx;
+  const { prisma, requireAuthPre, newsCache, naverClientId, naverClientSecret } = ctx;
 
-  app.get("/stocks/:id/news", async (request, reply) => {
+  app.get("/stocks/:id/news", { preHandler: [requireAuthPre] }, async (request, reply) => {
+    const auth = getRequestAuth(request)!;
     const { id } = request.params as { id: string };
-    let stock = await prisma.stock.findUnique({ where: { id } });
+    let stock = await prisma.stock.findFirst({ where: { id, tenantId: auth.tenantId } });
     if (!stock) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
     }
@@ -37,17 +41,17 @@ export async function registerNewsRoutes(app: FastifyInstance, ctx: Ctx) {
         searchAlias: stock.searchAlias,
       })
     ) {
-      const again = await prisma.stock.findUnique({ where: { id } });
+      const again = await prisma.stock.findFirst({ where: { id, tenantId: auth.tenantId } });
       if (again) stock = again;
     }
 
     const maxRow = await prisma.systemSetting.findUnique({
-      where: { settingKey: "news.max_items_per_stock" },
+      where: { tenantId_settingKey: { tenantId: auth.tenantId, settingKey: "news.max_items_per_stock" } },
     });
     const limit = Math.min(50, Math.max(1, Number(maxRow?.settingValue ?? 20)));
 
     const ttlRow = await prisma.systemSetting.findUnique({
-      where: { settingKey: "news.fetch_interval_ms" },
+      where: { tenantId_settingKey: { tenantId: auth.tenantId, settingKey: "news.fetch_interval_ms" } },
     });
     const ttlMs = Math.min(3_600_000, Math.max(5_000, Number(ttlRow?.settingValue ?? 60_000)));
 
@@ -58,6 +62,7 @@ export async function registerNewsRoutes(app: FastifyInstance, ctx: Ctx) {
     }
 
     const rules = await prisma.newsSourceRule.findMany({
+      where: { tenantId: auth.tenantId },
       orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
     });
     const ruleInput = rules.map((r) => ({

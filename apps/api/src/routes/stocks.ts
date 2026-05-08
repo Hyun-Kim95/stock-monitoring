@@ -6,7 +6,6 @@ import {
 import { Prisma, type PrismaClient } from "@prisma/client";
 import type { preHandlerHookHandler } from "fastify";
 import type { Env } from "../config.js";
-import { requireAdminToken } from "../lib/admin-pre-handler.js";
 import { sendZodError } from "../lib/errors.js";
 import { logError } from "../lib/logger.js";
 import { fetchNaverStockIntegrationMeta, toMarketLabelEn } from "../lib/naver-stock-integration.js";
@@ -18,7 +17,7 @@ import {
 } from "../lib/naver-industry-major-name.js";
 import { trySyncStockOfficialName } from "../lib/naver-official-name-sync.js";
 import { mergeFormerOfficialNameIntoSearchAlias } from "../lib/stock-search-alias.js";
-import { countActiveStocks, getMaxActiveStocks } from "../lib/stock-limits.js";
+import { countActiveStocksByTenant, getMaxActiveStocksByTenant } from "../lib/stock-limits.js";
 import {
   isHistoryCoverageFreshEnough,
   isMinuteCoverageFreshEnough,
@@ -32,6 +31,7 @@ import {
   type ChartRange,
 } from "@stock-monitoring/shared";
 import { fetchChart } from "../modules/history/quote-history.js";
+import { getRequestAuth } from "../lib/auth-session.js";
 
 /** DB에 market이 비어 있으면 네이버 basic API로 채워 저장 (integration에는 시장 필드 없음) */
 async function backfillMissingStockMarkets(
@@ -67,6 +67,7 @@ async function backfillMissingStockMarkets(
 type Ctx = {
   prisma: PrismaClient;
   adminPre: preHandlerHookHandler;
+  requireAuthPre: preHandlerHookHandler;
   reloadMarket: () => Promise<void>;
   env: Env;
   getNxEligibilityByCode: () => Record<string, boolean | null>;
@@ -89,7 +90,7 @@ function raceWithBudget(p: Promise<unknown>, budgetMs: number): Promise<void> {
 }
 
 export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
-  const { prisma, adminPre, reloadMarket, env, getNxEligibilityByCode } = ctx;
+  const { prisma, adminPre, requireAuthPre, reloadMarket, env, getNxEligibilityByCode } = ctx;
   type Tx = Prisma.TransactionClient;
   /** 종목별 당일 분봉 KIS 보강 진행 상태 (UI 배지/상태 노출용) */
   const minuteBackfillInProgressByCode = new Map<string, boolean>();
@@ -105,11 +106,16 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
   const MINUTE_CHART_CACHE_TTL_MS = 2_500;
 
 
-  async function upsertThemeByName(tx: Tx, rawName: string, description: string | null) {
+  async function upsertThemeByName(
+    tx: Tx,
+    tenantId: string,
+    rawName: string,
+    description: string | null,
+  ) {
     const name = normalizeIndustryMajorLabel(rawName);
     if (!name) return null;
     const found = await tx.theme.findFirst({
-      where: { name: { equals: name, mode: "insensitive" } },
+      where: { tenantId, name: { equals: name, mode: "insensitive" } },
     });
     if (found) {
       if (!found.isActive) {
@@ -117,24 +123,30 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
       }
       return found;
     }
-    return tx.theme.create({ data: { name, isActive: true, description } });
+    return tx.theme.create({ data: { tenantId, name, isActive: true, description } });
   }
 
-  async function linkIndustryTheme(tx: Tx, stockId: string, industryMajorCode: string | null | undefined) {
+  async function linkIndustryTheme(
+    tx: Tx,
+    tenantId: string,
+    stockId: string,
+    industryMajorCode: string | null | undefined,
+  ) {
     const code = industryMajorCode?.trim() ?? "";
     if (!code) return;
     const industryName = await getNaverIndustryMajorName(code);
     if (!industryName) return;
-    const theme = await upsertThemeByName(tx, industryName, `네이버 산업대분류(${code}) 자동 매핑`);
+    const theme = await upsertThemeByName(tx, tenantId, industryName, `네이버 산업대분류(${code}) 자동 매핑`);
     if (!theme) return;
     await tx.stockThemeMap.upsert({
-      where: { stockId_themeId: { stockId, themeId: theme.id } },
-      create: { stockId, themeId: theme.id },
+      where: { tenantId_stockId_themeId: { tenantId, stockId, themeId: theme.id } },
+      create: { tenantId, stockId, themeId: theme.id },
       update: {},
     });
   }
 
-  app.get("/stocks/search", async (request, reply) => {
+  app.get("/stocks/search", { preHandler: [requireAuthPre] }, async (request, reply) => {
+    const auth = getRequestAuth(request)!;
     const { q = "", size = "20" } = request.query as { q?: string; size?: string };
     const query = q.trim();
     if (query.length < 1) return { items: [] };
@@ -172,7 +184,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
       const codes = [...new Set(baseItems.map((x) => x.code))];
       const linked = codes.length
         ? await prisma.stock.findMany({
-            where: { code: { in: codes } },
+            where: { tenantId: auth.tenantId, code: { in: codes } },
             include: { themeMaps: { include: { theme: true } } },
           })
         : [];
@@ -218,20 +230,22 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
   app.get(
     "/stocks",
     {
-      preHandler: async (request, reply) => {
+      preHandler: [requireAuthPre, async (request, reply) => {
+        const auth = getRequestAuth(request)!;
         const q = request.query as { includeInactive?: string };
         const v = String(q?.includeInactive ?? "");
-        if (v === "1" || v.toLowerCase() === "true") {
-          await requireAdminToken(request, reply, env);
+        if ((v === "1" || v.toLowerCase() === "true") && auth.role !== "OWNER" && auth.role !== "ADMIN") {
+          return reply.status(403).send({ error: { code: "FORBIDDEN", message: "관리 권한이 필요합니다." } });
         }
-      },
+      }],
     },
     async (request) => {
+      const auth = getRequestAuth(request)!;
       const q = request.query as { includeInactive?: string };
       const v = String(q?.includeInactive ?? "");
       const includeInactive = v === "1" || v.toLowerCase() === "true";
       const rows = await prisma.stock.findMany({
-        where: includeInactive ? {} : { isActive: true },
+        where: includeInactive ? { tenantId: auth.tenantId } : { tenantId: auth.tenantId, isActive: true },
         orderBy: includeInactive
           ? ([{ isActive: "desc" as const }, { code: "asc" }] as const)
           : { code: "asc" },
@@ -270,7 +284,8 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     },
   );
 
-  app.get("/stocks/:id/chart", async (request, reply) => {
+  app.get("/stocks/:id/chart", { preHandler: [requireAuthPre] }, async (request, reply) => {
+    const auth = getRequestAuth(request)!;
     const { id } = request.params as { id: string };
     const q = request.query as {
       granularity?: string;
@@ -329,7 +344,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     const rawLimit = Number(q.limit);
     const limitOverride =
       Number.isFinite(rawLimit) && rawLimit > 0 ? Math.max(10, Math.min(20_000, Math.floor(rawLimit))) : undefined;
-    let stock = await prisma.stock.findUnique({ where: { id } });
+    let stock = await prisma.stock.findFirst({ where: { id, tenantId: auth.tenantId } });
     if (!stock) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
     }
@@ -341,11 +356,11 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
         searchAlias: stock.searchAlias,
       })
     ) {
-      const again = await prisma.stock.findUnique({ where: { id } });
+      const again = await prisma.stock.findFirst({ where: { id, tenantId: auth.tenantId } });
       if (again) stock = again;
     }
     const provRow = await prisma.systemSetting.findUnique({
-      where: { settingKey: "market_data.provider" },
+      where: { tenantId_settingKey: { tenantId: env.GLOBAL_TENANT_ID, settingKey: "market_data.provider" } },
     });
     const useKis = provRow?.settingValue?.trim().toLowerCase() === "kis";
     if (useKis) {
@@ -453,12 +468,14 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     };
   });
 
-  app.get("/stocks/:id", async (request, reply) => {
+  app.get("/stocks/:id", { preHandler: [requireAuthPre] }, async (request, reply) => {
+    const auth = getRequestAuth(request)!;
     const { id } = request.params as { id: string };
     let s = await prisma.stock.findUnique({
       where: { id },
       include: { themeMaps: { include: { theme: true } } },
     });
+    if (s && s.tenantId !== auth.tenantId) s = null;
     if (!s) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
     }
@@ -474,6 +491,9 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
         where: { id },
         include: { themeMaps: { include: { theme: true } } },
       });
+      if (again && again.tenantId !== auth.tenantId) {
+        return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
+      }
       if (again) s = again;
     }
     const ic = s.industryMajorCode?.trim() ?? "";
@@ -505,6 +525,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.post("/stocks", { preHandler: [adminPre] }, async (request, reply) => {
+    const auth = getRequestAuth(request)!;
     const parsed = StockCreateSchema.safeParse(request.body);
     if (!parsed.success) return sendZodError(reply, parsed.error);
     const b = parsed.data;
@@ -515,8 +536,8 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     const willBeActive = b.isActive !== false;
     if (willBeActive) {
-      const max = await getMaxActiveStocks(prisma);
-      const n = await countActiveStocks(prisma);
+      const max = await getMaxActiveStocksByTenant(prisma, auth.tenantId);
+      const n = await countActiveStocksByTenant(prisma, auth.tenantId);
       if (n >= max) {
         return reply.status(409).send({
           error: {
@@ -530,6 +551,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
       const created = await prisma.$transaction(async (tx) => {
         const stock = await tx.stock.create({
           data: {
+            tenantId: auth.tenantId,
             code: b.code,
             name: b.name,
             market: marketResolved,
@@ -545,15 +567,15 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
           for (const rawName of themeNames) {
             const name = normalizeIndustryMajorLabel(rawName);
             if (!name) continue;
-            const theme = await upsertThemeByName(tx, name, null);
+            const theme = await upsertThemeByName(tx, auth.tenantId, name, null);
             if (theme) themes.push(theme);
           }
           await tx.stockThemeMap.createMany({
-            data: themes.map((t) => ({ stockId: stock.id, themeId: t.id })),
+            data: themes.map((t) => ({ tenantId: auth.tenantId, stockId: stock.id, themeId: t.id })),
             skipDuplicates: true,
           });
         }
-        await linkIndustryTheme(tx, stock.id, b.industryMajorCode ?? null);
+        await linkIndustryTheme(tx, auth.tenantId, stock.id, b.industryMajorCode ?? null);
         return stock;
       });
 
@@ -565,18 +587,19 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.patch("/stocks/:id", { preHandler: [adminPre] }, async (request, reply) => {
+    const auth = getRequestAuth(request)!;
     const { id } = request.params as { id: string };
     const parsed = StockUpdateSchema.safeParse(request.body);
     if (!parsed.success) return sendZodError(reply, parsed.error);
 
-    const current = await prisma.stock.findUnique({ where: { id } });
+    const current = await prisma.stock.findFirst({ where: { id, tenantId: auth.tenantId } });
     if (!current) {
       return reply.status(404).send({ error: { code: "NOT_FOUND", message: "종목 없음" } });
     }
 
     if (parsed.data.isActive === true && !current.isActive) {
-      const max = await getMaxActiveStocks(prisma);
-      const n = await countActiveStocks(prisma);
+      const max = await getMaxActiveStocksByTenant(prisma, auth.tenantId);
+      const n = await countActiveStocksByTenant(prisma, auth.tenantId);
       if (n >= max) {
         return reply.status(409).send({
           error: {
@@ -618,7 +641,7 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
           where: { id },
           data,
         });
-        await linkIndustryTheme(tx, row.id, row.industryMajorCode);
+        await linkIndustryTheme(tx, auth.tenantId, row.id, row.industryMajorCode);
         return row;
       });
       await reloadMarket();
@@ -629,8 +652,11 @@ export async function registerStockRoutes(app: FastifyInstance, ctx: Ctx) {
   });
 
   app.delete("/stocks/:id", { preHandler: [adminPre] }, async (request, reply) => {
+    const auth = getRequestAuth(request)!;
     const { id } = request.params as { id: string };
     try {
+      const current = await prisma.stock.findFirst({ where: { id, tenantId: auth.tenantId } });
+      if (!current) throw new Error("not found");
       await prisma.stock.update({ where: { id }, data: { isActive: false } });
       await reloadMarket();
       return reply.status(204).send();

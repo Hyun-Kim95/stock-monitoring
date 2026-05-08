@@ -11,6 +11,7 @@ import {
 
 const SETTING_LAST_STARTED_AT = "runtime.api.last_started_at";
 const SETTING_LAST_STOPPED_AT = "runtime.api.last_stopped_at";
+const GLOBAL_TENANT_ID = "default-tenant";
 
 function kstDateOnly(d: Date): string {
   return d.toLocaleString("sv-SE", { timeZone: "Asia/Seoul" }).slice(0, 10);
@@ -46,9 +47,9 @@ function startupBackfillFromHhmmss(now: Date, lastStoppedAt: Date | null, lastSt
 
 async function markLastStartedAt(prisma: PrismaClient, now: Date): Promise<void> {
   await prisma.systemSetting.upsert({
-    where: { settingKey: SETTING_LAST_STARTED_AT },
+    where: { tenantId_settingKey: { tenantId: GLOBAL_TENANT_ID, settingKey: SETTING_LAST_STARTED_AT } },
     update: { settingValue: now.toISOString() },
-    create: { settingKey: SETTING_LAST_STARTED_AT, settingValue: now.toISOString() },
+    create: { tenantId: GLOBAL_TENANT_ID, settingKey: SETTING_LAST_STARTED_AT, settingValue: now.toISOString() },
   });
 }
 
@@ -87,14 +88,16 @@ export async function runStartupQuoteHistoryPrep(
     if (!env.KIS_STARTUP_MINUTE_BACKFILL) return;
 
     const provRow = await prisma.systemSetting.findUnique({
-      where: { settingKey: "market_data.provider" },
+      where: { tenantId_settingKey: { tenantId: GLOBAL_TENANT_ID, settingKey: "market_data.provider" } },
     });
     if (provRow?.settingValue?.trim().toLowerCase() !== "kis") return;
     if (!env.KIS_APP_KEY?.trim() || !env.KIS_APP_SECRET?.trim()) return;
 
     const [lastStoppedRow, lastStartedRow] = await Promise.all([
-      prisma.systemSetting.findUnique({ where: { settingKey: SETTING_LAST_STOPPED_AT } }),
-      prisma.systemSetting.findUnique({ where: { settingKey: SETTING_LAST_STARTED_AT } }),
+      prisma.systemSetting.findUnique({
+        where: { tenantId_settingKey: { tenantId: GLOBAL_TENANT_ID, settingKey: SETTING_LAST_STOPPED_AT } },
+      }),
+      prisma.systemSetting.findUnique({ where: { tenantId_settingKey: { tenantId: GLOBAL_TENANT_ID, settingKey: SETTING_LAST_STARTED_AT } } }),
     ]);
     const fromHhmmss = startupBackfillFromHhmmss(
       now,
@@ -122,7 +125,7 @@ export async function runStartupMinuteChartPrewarmQueue(
   opts?: { getNxEligibilityByCode?: () => Record<string, boolean | null> },
 ): Promise<void> {
   const provRow = await prisma.systemSetting.findUnique({
-    where: { settingKey: "market_data.provider" },
+    where: { tenantId_settingKey: { tenantId: GLOBAL_TENANT_ID, settingKey: "market_data.provider" } },
   });
   if (provRow?.settingValue?.trim().toLowerCase() !== "kis") return;
   if (!env.KIS_APP_KEY?.trim() || !env.KIS_APP_SECRET?.trim()) return;

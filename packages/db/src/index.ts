@@ -8,5 +8,15 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
 
-export type { Stock, Theme, NewsSourceRule, SystemSetting } from "@prisma/client";
-export { NewsRuleScope } from "@prisma/client";
+export type {
+  Stock,
+  Theme,
+  NewsSourceRule,
+  SystemSetting,
+  User,
+  Tenant,
+  Membership,
+  Session,
+  UserPreference,
+} from "@prisma/client";
+export { NewsRuleScope, MemberRole, OAuthProvider } from "@prisma/client";

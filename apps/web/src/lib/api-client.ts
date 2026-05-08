@@ -11,17 +11,10 @@ export class ApiError extends Error {
   }
 }
 
-function adminHeaders(): HeadersInit {
-  const t = process.env.NEXT_PUBLIC_ADMIN_TOKEN;
-  return t ? { Authorization: `Bearer ${t}` } : {};
-}
-
-export type ApiGetOptions = { admin?: boolean };
-
-export async function apiGet<T>(path: string, options?: ApiGetOptions): Promise<T> {
+export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${base}${path}`, {
     cache: "no-store",
-    headers: options?.admin ? { ...adminHeaders() } : undefined,
+    credentials: "include",
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
@@ -37,9 +30,9 @@ export async function apiSend<T>(
 ): Promise<T | void> {
   const res = await fetch(`${base}${path}`, {
     method,
+    credentials: "include",
     headers: {
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-      ...adminHeaders(),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });

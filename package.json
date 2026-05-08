@@ -5,6 +5,9 @@
   "engines": {
     "node": ">=20"
   },
+  "overrides": {
+    "postcss": "^8.5.10"
+  },
   "scripts": {
     "predev": "node scripts/free-port-predev.mjs && npm run build -w @stock-monitoring/shared",
     "dev": "concurrently -n shared,api,web -c yellow,blue,green \"npm run dev -w @stock-monitoring/shared\" \"npm run dev -w @stock-monitoring/api\" \"npm run dev -w @stock-monitoring/web\"",

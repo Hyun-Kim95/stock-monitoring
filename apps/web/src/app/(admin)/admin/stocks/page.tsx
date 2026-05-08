@@ -49,7 +49,7 @@ export default function AdminStocksPage() {
     try {
       setErr(null);
       const [s, t] = await Promise.all([
-        apiGet<{ stocks: Stock[] }>("/stocks?includeInactive=1", { admin: true }),
+        apiGet<{ stocks: Stock[] }>("/stocks?includeInactive=1"),
         apiGet<{ themes: { id: string; name: string }[] }>("/themes"),
       ]);
       setStocks(s.stocks);

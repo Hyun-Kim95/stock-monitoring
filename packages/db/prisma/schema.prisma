@@ -12,9 +12,114 @@ enum NewsRuleScope {
   STOCK
 }
 
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum OAuthProvider {
+  GOOGLE
+  KAKAO
+  NAVER
+}
+
+model Tenant {
+  id          String          @id @default(uuid())
+  name        String
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  stocks      Stock[]
+  themes      Theme[]
+  stockThemeMaps StockThemeMap[]
+  newsRules   NewsSourceRule[]
+  settings    SystemSetting[]
+
+  @@map("tenants")
+}
+
+model User {
+  id          String          @id @default(uuid())
+  email       String          @unique
+  displayName String?         @map("display_name")
+  avatarUrl   String?         @map("avatar_url")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  memberships Membership[]
+  oauthAccounts OAuthAccount[]
+  sessions    Session[]
+  preferences UserPreference[]
+
+  @@map("users")
+}
+
+model Membership {
+  id          String          @id @default(uuid())
+  userId      String          @map("user_id")
+  tenantId    String          @map("tenant_id")
+  role        MemberRole      @default(MEMBER)
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId])
+  @@index([tenantId, role])
+  @@map("memberships")
+}
+
+model OAuthAccount {
+  id                  String          @id @default(uuid())
+  userId              String          @map("user_id")
+  provider            OAuthProvider
+  providerAccountId   String          @map("provider_account_id")
+  createdAt           DateTime        @default(now()) @map("created_at")
+
+  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("oauth_accounts")
+}
+
+model Session {
+  id          String          @id @default(uuid())
+  userId      String          @map("user_id")
+  token       String          @unique
+  expiresAt   DateTime        @map("expires_at")
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("sessions")
+}
+
+model UserPreference {
+  id                    String    @id @default(uuid())
+  userId                String    @map("user_id")
+  pinnedStockIds        String[]  @default([]) @map("pinned_stock_ids")
+  filterText            String    @default("") @map("filter_text")
+  marketFilter          String    @default("ALL") @map("market_filter")
+  sessionFilter         String    @default("ALL") @map("session_filter")
+  nxtFilter             String    @default("ALL") @map("nxt_filter")
+  themeFilterIds        String[]  @default([]) @map("theme_filter_ids")
+  changeAlertThreshold  Int?      @map("change_alert_threshold")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+  @@map("user_preferences")
+}
+
 model Stock {
   id            String   @id @default(uuid())
-  code          String   @unique @map("stock_code")
+  tenantId      String   @map("tenant_id")
+  code          String   @map("stock_code")
   name          String   @map("stock_name")
   /** 코스피·코스닥·코넥스 등 표시용 (네이버 integration nameKor) */
   market        String?  @map("market")
@@ -24,10 +129,13 @@ model Stock {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   themeMaps     StockThemeMap[]
   newsRules     NewsSourceRule[]
 
   @@index([isActive])
+  @@index([tenantId, isActive])
+  @@unique([tenantId, code])
   @@map("stocks")
 }
 
@@ -45,34 +153,41 @@ model StockQuoteHistory {
 
 model Theme {
   id          String   @id @default(uuid())
-  name        String   @unique @map("theme_name")
+  tenantId    String   @map("tenant_id")
+  name        String   @map("theme_name")
   description String?  @map("description")
   isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   stockMaps   StockThemeMap[]
 
+  @@unique([tenantId, name])
+  @@index([tenantId, isActive])
   @@map("themes")
 }
 
 model StockThemeMap {
   id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
   stockId   String   @map("stock_id")
   themeId   String   @map("theme_id")
   createdAt DateTime @default(now()) @map("created_at")
 
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   stock     Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
   theme     Theme    @relation(fields: [themeId], references: [id], onDelete: Cascade)
 
-  @@unique([stockId, themeId])
-  @@index([stockId])
-  @@index([themeId])
+  @@unique([tenantId, stockId, themeId])
+  @@index([tenantId, stockId])
+  @@index([tenantId, themeId])
   @@map("stock_theme_maps")
 }
 
 model NewsSourceRule {
   id              String          @id @default(uuid())
+  tenantId        String          @map("tenant_id")
   scope           NewsRuleScope
   stockId         String?         @map("stock_id")
   includeKeyword  String?         @map("include_keyword")
@@ -82,18 +197,23 @@ model NewsSourceRule {
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   stock           Stock?          @relation(fields: [stockId], references: [id], onDelete: Cascade)
 
-  @@index([scope, isActive])
-  @@index([stockId])
+  @@index([tenantId, scope, isActive])
+  @@index([tenantId, stockId])
   @@map("news_source_rules")
 }
 
 model SystemSetting {
   id           String   @id @default(uuid())
-  settingKey   String   @unique @map("setting_key")
+  tenantId     String   @map("tenant_id")
+  settingKey   String   @map("setting_key")
   settingValue String   @map("setting_value")
   updatedAt    DateTime @updatedAt @map("updated_at")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, settingKey])
+  @@index([tenantId, settingKey])
   @@map("system_settings")
 }

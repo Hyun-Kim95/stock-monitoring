@@ -7,6 +7,7 @@ import { getNaverIndustryMajorName } from "../lib/naver-industry-major-name.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../../../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../../../.env.local") });
+const TENANT_ID = process.env.GLOBAL_TENANT_ID?.trim() || "default-tenant";
 
 function normalizeThemeName(raw: string): string {
   return raw.trim().replace(/\s+/g, " ");
@@ -14,7 +15,7 @@ function normalizeThemeName(raw: string): string {
 
 async function main() {
   const stocks = await prisma.stock.findMany({
-    where: { isActive: true, NOT: { industryMajorCode: null } },
+    where: { tenantId: TENANT_ID, isActive: true, NOT: { industryMajorCode: null } },
     select: { id: true, code: true, name: true, industryMajorCode: true },
     orderBy: { code: "asc" },
   });
@@ -45,12 +46,13 @@ async function main() {
 
     const theme = await prisma.$transaction(async (tx) => {
       const found = await tx.theme.findFirst({
-        where: { name: { equals: industryName, mode: "insensitive" } },
+        where: { tenantId: TENANT_ID, name: { equals: industryName, mode: "insensitive" } },
       });
       if (found) return { id: found.id, created: false };
 
       const created = await tx.theme.create({
         data: {
+          tenantId: TENANT_ID,
           name: industryName,
           isActive: true,
           description: `네이버 산업대분류(${code}) 자동 매핑`,
@@ -65,8 +67,8 @@ async function main() {
     }
 
     await prisma.stockThemeMap.upsert({
-      where: { stockId_themeId: { stockId: s.id, themeId: theme.id } },
-      create: { stockId: s.id, themeId: theme.id },
+      where: { tenantId_stockId_themeId: { tenantId: TENANT_ID, stockId: s.id, themeId: theme.id } },
+      create: { tenantId: TENANT_ID, stockId: s.id, themeId: theme.id },
       update: {},
     });
     linkedPairs += 1;
