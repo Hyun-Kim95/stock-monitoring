@@ -30,6 +30,7 @@ type ThemeBrief = { id: string; name: string };
 export default function AdminStocksPage() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [themes, setThemes] = useState<ThemeBrief[]>([]);
+  const [maxActiveStocks, setMaxActiveStocks] = useState<number>(100);
   const [err, setErr] = useState<string | null>(null);
   /** 기존 종목 수정 시 설정. null이면 신규 등록 폼. */
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -54,6 +55,13 @@ export default function AdminStocksPage() {
       ]);
       setStocks(s.stocks);
       setThemes(t.themes.map((x) => ({ id: x.id, name: x.name })));
+      try {
+        const setting = await apiGet<{ setting: { value: string } }>("/settings/stocks.max_active");
+        const n = Number(setting.setting.value);
+        if (Number.isFinite(n) && n > 0) setMaxActiveStocks(Math.floor(n));
+      } catch {
+        setMaxActiveStocks(100);
+      }
     } catch (e) {
       setErr(e instanceof ApiError ? `오류 ${e.status}` : "로드 실패");
     }
@@ -191,6 +199,9 @@ export default function AdminStocksPage() {
   return (
     <div>
       {err ? <p style={{ color: "var(--down)" }}>{err}</p> : null}
+      <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--muted-foreground)" }}>
+        활성 관심종목: {stocks.filter((s) => s.isActive).length} / 최대 {maxActiveStocks}
+      </p>
 
       <div className="admin-grid">
         <form className="panel" onSubmit={submitStockForm} style={{ padding: 12 }}>

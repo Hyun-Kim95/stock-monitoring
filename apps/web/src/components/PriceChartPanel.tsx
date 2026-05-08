@@ -1043,8 +1043,8 @@ export function PriceChartPanel({
               ?
             </button>
             <span id="chart-tip-storage" role="tooltip" className="chart-help-tip">
-              시세는 약 1초 간격으로 저장됩니다. 분봉은 빈 분을 건너뛰어 표시될 수 있고, 봉 개수는 DB에 저장된
-              기간에 따라 줄어들 수 있습니다.
+              시세는 약 1초 간격으로 저장됩니다. 분봉은 종목이 처음 등록된 시점부터 누적되며, 빈 분은 건너뛰어
+              표시될 수 있습니다.
             </span>
           </span>
           {lwData.length > 0 ? (
