@@ -242,7 +242,17 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: Ctx) {
             },
             memberships: {
               create: {
-                tenant: { create: { name: tenantName } },
+                tenant: {
+                  create: {
+                    name: tenantName,
+                    stocks: {
+                      create: [
+                        { code: "005930", name: "삼성전자" },
+                        { code: "000660", name: "SK하이닉스" },
+                      ],
+                    },
+                  },
+                },
                 role: "OWNER",
               },
             },

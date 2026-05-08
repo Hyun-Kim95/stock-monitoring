@@ -35,7 +35,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="admin-shell">
       <aside className="admin-sidebar">
         <div className="admin-brand">
-          <div className="admin-brand-title">Admin Console</div>
+          <div className="admin-brand-title">설정</div>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>{user.email}</div>
         </div>
         <AdminNav />

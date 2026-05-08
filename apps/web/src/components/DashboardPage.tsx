@@ -728,7 +728,7 @@ export function DashboardPage() {
             className="btn btn-secondary"
             style={{ textDecoration: "none", fontSize: 12, padding: "4px 10px" }}
           >
-            관리자
+            설정
           </Link>
         </div>
       </header>
