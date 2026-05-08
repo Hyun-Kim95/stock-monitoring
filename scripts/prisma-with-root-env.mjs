@@ -20,11 +20,21 @@ if (args.length === 0) {
   process.exit(1);
 }
 
+const prismaCmd = args[0];
+/** DB에 접속하지 않는 Prisma 서브커맨드 (CI/도커 빌드에서 DATABASE_URL 없이 실행 가능) */
+const dbUrlOptional =
+  prismaCmd === "generate" || prismaCmd === "format" || prismaCmd === "validate";
+
 if (!process.env.DATABASE_URL?.trim()) {
-  console.error(
-    "DATABASE_URL이 없습니다. 모노레포 루트에 .env 를 두고 예시는 .env.example 을 참고하세요.",
-  );
-  process.exit(1);
+  if (dbUrlOptional) {
+    process.env.DATABASE_URL =
+      "postgresql://build:build@127.0.0.1:5432/build?schema=public";
+  } else {
+    console.error(
+      "DATABASE_URL이 없습니다. 모노레포 루트에 .env 를 두고 예시는 .env.example 을 참고하세요.",
+    );
+    process.exit(1);
+  }
 }
 
 const r = spawnSync("npx", ["prisma", ...args], {
