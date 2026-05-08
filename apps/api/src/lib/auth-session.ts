@@ -32,11 +32,12 @@ export function getSessionCookieName() {
 }
 
 export function buildSessionCookie(token: string, secure: boolean): string {
+  const sameSite = secure ? "None" : "Lax";
   const attrs = [
     `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    `SameSite=${sameSite}`,
     `Max-Age=${SESSION_MAX_AGE_SEC}`,
   ];
   if (secure) attrs.push("Secure");
@@ -44,11 +45,12 @@ export function buildSessionCookie(token: string, secure: boolean): string {
 }
 
 export function clearSessionCookie(secure: boolean): string {
+  const sameSite = secure ? "None" : "Lax";
   const attrs = [
     `${SESSION_COOKIE}=`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    `SameSite=${sameSite}`,
     "Max-Age=0",
   ];
   if (secure) attrs.push("Secure");
