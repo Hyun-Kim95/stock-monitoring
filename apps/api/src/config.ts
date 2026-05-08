@@ -52,7 +52,12 @@ const EnvSchema = z.object({
 export type Env = z.infer<typeof EnvSchema>;
 
 export function loadEnv(): Env {
-  const parsed = EnvSchema.safeParse(process.env);
+  const envLike = { ...process.env };
+  /** Railway 등은 PORT만 주고 API_PORT는 비움 → 리슨 포트 정합 */
+  if (!envLike.API_PORT?.trim() && envLike.PORT?.trim()) {
+    envLike.API_PORT = envLike.PORT;
+  }
+  const parsed = EnvSchema.safeParse(envLike);
   if (!parsed.success) {
     console.error(parsed.error.flatten().fieldErrors);
     throw new Error("Invalid environment variables");
