@@ -11,6 +11,7 @@ import {
   providerToEnum,
   revokeSession,
 } from "../lib/auth-session.js";
+import { logError } from "../lib/logger.js";
 
 type Ctx = {
   prisma: PrismaClient;
@@ -252,7 +253,15 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: Ctx) {
       const { token } = await createSession(prisma, user.id);
       reply.header("Set-Cookie", buildSessionCookie(token, env.NODE_ENV === "production"));
       return reply.redirect(`${appRedirectBase(env)}${state.next}`);
-    } catch {
+    } catch (err) {
+      const msg = String(err ?? "");
+      logError("oauth callback failed", { provider, err: msg });
+      if (msg.includes("oauth profile incomplete")) {
+        return reply.redirect(failToWeb(env, "oauth_profile_incomplete"));
+      }
+      if (msg.includes("access_token missing")) {
+        return reply.redirect(failToWeb(env, "oauth_token_missing"));
+      }
       return reply.redirect(failToWeb(env, "oauth_failed"));
     }
   });
