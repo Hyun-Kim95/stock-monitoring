@@ -28,7 +28,6 @@ type StockApi = {
   market: string | null;
   industryMajorCode: string | null;
   industryMajorName: string | null;
-  searchAlias: string | null;
   /** KIS 기준 넥스트(NXT) 시세 조회 가능. null은 아직 판별 전(모의시세는 항상 null) */
   nxEligible: boolean | null;
   themes: ThemeBrief[];
@@ -53,9 +52,37 @@ type StockSearchItem = {
 
 type SortKey = "name" | "price" | "changeRate" | "volume" | "foreignNetBuyVolume" | "foreignOwnershipPct";
 type SortDirection = "asc" | "desc";
+type ColumnKey = "pin" | "name" | "market" | "nxt" | "price" | "changeRate" | "volume" | "foreignNetBuyVolume" | "foreignOwnershipPct" | "session";
 
 const PINNED_STOCK_IDS_KEY = "dashboard.pinnedStockIds";
 const DASHBOARD_BASIC_FILTERS_KEY = "dashboard.basicFilters";
+const WATCHLIST_VISIBLE_COLUMNS_KEY = "dashboard.watchlistVisibleColumns";
+const MOBILE_BREAKPOINT_MAX = 979;
+const MOBILE_MAX_VISIBLE_COLUMNS = 6;
+const DEFAULT_VISIBLE_COLUMNS: ColumnKey[] = [
+  "pin",
+  "name",
+  "market",
+  "nxt",
+  "price",
+  "changeRate",
+  "volume",
+  "foreignNetBuyVolume",
+  "foreignOwnershipPct",
+  "session",
+];
+const COLUMN_OPTIONS: Array<{ key: ColumnKey; label: string }> = [
+  { key: "pin", label: "고정" },
+  { key: "name", label: "종목" },
+  { key: "market", label: "시장" },
+  { key: "nxt", label: "NXT" },
+  { key: "price", label: "현재가" },
+  { key: "changeRate", label: "등락률" },
+  { key: "volume", label: "거래량" },
+  { key: "foreignNetBuyVolume", label: "외인순매수" },
+  { key: "foreignOwnershipPct", label: "외인%" },
+  { key: "session", label: "세션" },
+];
 
 type DashboardBasicFilters = {
   filterText: string;
@@ -118,6 +145,29 @@ function readDashboardBasicFiltersFromStorage(): DashboardBasicFilters | null {
   }
 }
 
+function readVisibleColumnsFromStorage(): ColumnKey[] {
+  if (typeof window === "undefined") return DEFAULT_VISIBLE_COLUMNS;
+  try {
+    const raw = localStorage.getItem(WATCHLIST_VISIBLE_COLUMNS_KEY);
+    if (!raw) return DEFAULT_VISIBLE_COLUMNS;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return DEFAULT_VISIBLE_COLUMNS;
+    const allowed = new Set<ColumnKey>(DEFAULT_VISIBLE_COLUMNS);
+    const filtered = parsed.filter((x): x is ColumnKey => typeof x === "string" && allowed.has(x as ColumnKey));
+    return filtered.length > 0 ? filtered : DEFAULT_VISIBLE_COLUMNS;
+  } catch {
+    return DEFAULT_VISIBLE_COLUMNS;
+  }
+}
+
+function writeVisibleColumnsToStorage(cols: ColumnKey[]) {
+  try {
+    localStorage.setItem(WATCHLIST_VISIBLE_COLUMNS_KEY, JSON.stringify(cols));
+  } catch {
+    /* ignore */
+  }
+}
+
 function formatForeignNetVol(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "—";
   const sign = v > 0 ? "+" : "";
@@ -176,8 +226,12 @@ export function DashboardPage() {
   const [addStockErr, setAddStockErr] = useState<string | null>(null);
   const [addStockRegistering, setAddStockRegistering] = useState<string | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  const [chartCollapsed, setChartCollapsed] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<ColumnKey[]>(DEFAULT_VISIBLE_COLUMNS);
   const addStockDialogRef = useRef<HTMLDialogElement>(null);
   const filterDialogRef = useRef<HTMLDialogElement>(null);
+  const columnDialogRef = useRef<HTMLDialogElement>(null);
   const addStockSearchInputRef = useRef<HTMLInputElement>(null);
 
   useChangeRateAlerts(quotes, { enabled: changeRateAlertsOn, threshold: alertThresholdPct });
@@ -190,6 +244,14 @@ export function DashboardPage() {
     filterDialogRef.current?.close();
   }, []);
 
+  const openColumnDialog = useCallback(() => {
+    columnDialogRef.current?.showModal();
+  }, []);
+
+  const closeColumnDialog = useCallback(() => {
+    columnDialogRef.current?.close();
+  }, []);
+
   const resetDashboardFilters = useCallback(() => {
     setFilterText("");
     setMarketFilter("ALL");
@@ -198,8 +260,19 @@ export function DashboardPage() {
     setThemeFilterIds([]);
   }, []);
 
+  const toggleVisibleColumn = useCallback((key: ColumnKey) => {
+    setVisibleColumns((prev) => {
+      if (prev.includes(key)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((k) => k !== key);
+      }
+      return [...prev, key];
+    });
+  }, []);
+
   useEffect(() => {
     setPinnedIds(readPinnedStockIdsFromStorage());
+    setVisibleColumns(readVisibleColumnsFromStorage());
     const savedFilters = readDashboardBasicFiltersFromStorage();
     if (!savedFilters) return;
     setFilterText(savedFilters.filterText);
@@ -207,6 +280,15 @@ export function DashboardPage() {
     setSessionFilter(savedFilters.sessionFilter);
     setNxtFilter(savedFilters.nxtFilter);
     setThemeFilterIds(savedFilters.themeFilterIds);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_MAX}px)`);
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
 
   useEffect(() => {
@@ -244,6 +326,10 @@ export function DashboardPage() {
       /* ignore */
     }
   }, [filterText, marketFilter, sessionFilter, nxtFilter, themeFilterIds]);
+
+  useEffect(() => {
+    writeVisibleColumnsToStorage(visibleColumns);
+  }, [visibleColumns]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -426,6 +512,11 @@ export function DashboardPage() {
 
   const selected = stocks.find((s) => s.id === selectedId) ?? null;
 
+  const selectStock = useCallback((stockId: string) => {
+    setSelectedId(stockId);
+    setChartCollapsed(false);
+  }, []);
+
   const openStockByCode = useCallback(
     (rawCode: string) => {
       const c = rawCode.trim();
@@ -439,9 +530,9 @@ export function DashboardPage() {
       setMarketFilter("ALL");
       setSessionFilter("ALL");
       setNxtFilter("ALL");
-      setSelectedId(s.id);
+      selectStock(s.id);
     },
-    [stocks],
+    [stocks, selectStock],
   );
 
   useEffect(() => {
@@ -498,8 +589,7 @@ export function DashboardPage() {
     if (
       q &&
       !s.code.toLowerCase().includes(q) &&
-      !s.name.toLowerCase().includes(q) &&
-      !(s.searchAlias?.toLowerCase().includes(q) ?? false)
+      !s.name.toLowerCase().includes(q)
     ) {
       setSelectedId(null);
     }
@@ -595,6 +685,10 @@ export function DashboardPage() {
     };
   }, [selectedId]);
 
+  useEffect(() => {
+    if (!selectedId) setChartCollapsed(false);
+  }, [selectedId]);
+
   const rows = useMemo(() => {
     const q = filterText.trim().toLowerCase();
     const filtered = stocks.filter((s) => {
@@ -609,11 +703,7 @@ export function DashboardPage() {
         if (nxt !== nxtFilter) return false;
       }
       if (!q) return true;
-      return (
-        s.code.toLowerCase().includes(q) ||
-        s.name.toLowerCase().includes(q) ||
-        (s.searchAlias?.toLowerCase().includes(q) ?? false)
-      );
+      return s.code.toLowerCase().includes(q) || s.name.toLowerCase().includes(q);
     });
 
     const pinnedRows = pinnedIds
@@ -653,6 +743,98 @@ export function DashboardPage() {
   }
 
   const alertExplainerTitle = `전일 대비 등락률이 +${alertThresholdPct}% 또는 −${alertThresholdPct}%를 넘을 때 알림을 보냅니다. 상·하 방향 모두 동일 기준입니다. 같은 구간에서는 한 번만 울리며, 등락률이 각각 ${alertThresholdPct - 1}%·−${alertThresholdPct - 1}% 쪽으로 충분히 되돌아온 뒤 다시 ±${alertThresholdPct}%를 넘으면 그때 다시 알립니다.`;
+  const headerButtonClass = "btn btn-secondary dashboard-control-btn";
+  const activeVisibleColumns = useMemo(() => {
+    const allowed = new Set<ColumnKey>(visibleColumns);
+    const ordered = DEFAULT_VISIBLE_COLUMNS.filter((key) => allowed.has(key));
+    const normalized = ordered.length > 0 ? ordered : DEFAULT_VISIBLE_COLUMNS;
+    return isMobile ? normalized.slice(0, MOBILE_MAX_VISIBLE_COLUMNS) : normalized;
+  }, [isMobile, visibleColumns]);
+
+  const renderHeaderCell = (key: ColumnKey) => {
+    if (key === "pin") {
+      return (
+        <th key={key} style={{ width: 44, textAlign: "center" }} scope="col" title="목록 상단에 고정">
+          고정
+        </th>
+      );
+    }
+    if (key === "name") {
+      return (
+        <th key={key} style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("name")}>
+          종목 {sortIndicator("name")}
+        </th>
+      );
+    }
+    if (key === "market") {
+      return (
+        <th key={key} style={{ width: 52, textAlign: "center" }} scope="col" title="KOSPI / KOSDAQ / KONEX">
+          시장
+        </th>
+      );
+    }
+    if (key === "nxt") {
+      return (
+        <th key={key} style={{ width: 56, textAlign: "center" }} scope="col" title="넥스트(NXT) 시간외 거래 시세 조회 가능 여부(KIS)">
+          NXT
+        </th>
+      );
+    }
+    if (key === "price") {
+      return (
+        <th key={key} className="num" style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("price")}>
+          현재가 {sortIndicator("price")}
+        </th>
+      );
+    }
+    if (key === "changeRate") {
+      return (
+        <th key={key} className="num" style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("changeRate")}>
+          등락률 {sortIndicator("changeRate")}
+        </th>
+      );
+    }
+    if (key === "volume") {
+      return (
+        <th key={key} className="num" style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("volume")}>
+          거래량 {sortIndicator("volume")}
+        </th>
+      );
+    }
+    if (key === "foreignNetBuyVolume") {
+      return (
+        <th
+          key={key}
+          className="num"
+          style={{ cursor: "pointer" }}
+          scope="col"
+          onClick={() => toggleSort("foreignNetBuyVolume")}
+          title="당일 외국인 순매수 수량(주). 투자자 수급 TR 기준"
+        >
+          외인순매수 {sortIndicator("foreignNetBuyVolume")}
+        </th>
+      );
+    }
+    if (key === "foreignOwnershipPct") {
+      return (
+        <th
+          key={key}
+          className="num"
+          style={{ cursor: "pointer" }}
+          scope="col"
+          onClick={() => toggleSort("foreignOwnershipPct")}
+          title="외국인 소진율(%)"
+        >
+          외인% {sortIndicator("foreignOwnershipPct")}
+        </th>
+      );
+    }
+    return (
+      <th key={key} scope="col">
+        세션
+      </th>
+    );
+  };
 
   return (
     <div className="dashboard-root">
@@ -733,11 +915,11 @@ export function DashboardPage() {
                 <span style={{ fontSize: 11, color: "var(--down)", maxWidth: 220 }}>{changeRateAlertErr}</span>
               ) : null}
             </div>
-            <ThemeToggle />
-            <button type="button" className="btn btn-secondary dashboard-mobile-filter-btn" onClick={openFilterDialog}>
+            <ThemeToggle className={headerButtonClass} />
+            <button type="button" className={`${headerButtonClass} dashboard-mobile-filter-btn`} onClick={openFilterDialog}>
               필터
             </button>
-            <Link href="/admin/stocks" className="btn btn-secondary dashboard-settings-btn">
+            <Link href="/admin/stocks" className={`${headerButtonClass} dashboard-settings-btn`}>
               설정
             </Link>
           </div>
@@ -745,12 +927,12 @@ export function DashboardPage() {
         <div className="dashboard-search-row">
           <input
             className="dashboard-filter-input"
-            placeholder="종목명·코드·별칭 필터"
+            placeholder="종목명·코드 필터"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            aria-label="종목명·코드·별칭 필터"
+            aria-label="종목명·코드 필터"
           />
-          <button type="button" className="btn btn-secondary dashboard-reset-filters-btn" onClick={resetDashboardFilters}>
+          <button type="button" className={`${headerButtonClass} dashboard-reset-filters-btn`} onClick={resetDashboardFilters}>
             초기화
           </button>
         </div>
@@ -798,6 +980,35 @@ export function DashboardPage() {
                 <option value="UNKNOWN">확인중</option>
               </select>
             </label>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 12, color: "var(--muted-foreground)" }}>테마 필터</div>
+            {portfolioThemes.length === 0 ? (
+              <div style={{ fontSize: 12, color: "var(--muted-foreground)" }}>표시할 테마가 없습니다.</div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {portfolioThemes.map((t) => {
+                  const on = themeFilterIds.includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => toggleThemeFilter(t.id)}
+                      className={on ? "primary" : "btn btn-secondary"}
+                      style={{ fontSize: 12, padding: "4px 10px" }}
+                      title={on ? "필터 적용됨" : "필터에 추가"}
+                    >
+                      {t.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {themeFilterIds.length > 0 ? (
+              <button type="button" className="btn btn-secondary" style={{ width: "fit-content" }} onClick={() => setThemeFilterIds([])}>
+                테마 필터 전체 해제
+              </button>
+            ) : null}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }} title={alertExplainerTitle}>
             <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
@@ -847,10 +1058,51 @@ export function DashboardPage() {
         <div className="panel dashboard-panel-watchlist">
           <div className="panel-h" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <span>관심종목</span>
-            <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={openAddStockDialog}>
-              종목 추가
-            </button>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={openColumnDialog}>
+                컬럼설정
+              </button>
+              <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={openAddStockDialog}>
+                종목 추가
+              </button>
+            </div>
           </div>
+          <dialog ref={columnDialogRef} className="dashboard-filter-dialog" aria-labelledby="dashboard-column-dialog-title">
+            <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <h2 id="dashboard-column-dialog-title" style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+                  표시 컬럼 선택
+                </h2>
+                <button type="button" className="btn btn-secondary" onClick={closeColumnDialog} aria-label="닫기">
+                  닫기
+                </button>
+              </div>
+              <p style={{ margin: 0, fontSize: 12, color: "var(--muted-foreground)" }}>
+                모바일에서는 선택한 컬럼 중 앞 6개만 표시됩니다.
+              </p>
+              <div style={{ display: "grid", gap: 8 }}>
+                {COLUMN_OPTIONS.map((option) => (
+                  <label key={option.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.includes(option.key)}
+                      onChange={() => toggleVisibleColumn(option.key)}
+                      aria-label={`${option.label} 컬럼 표시`}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setVisibleColumns(DEFAULT_VISIBLE_COLUMNS)}>
+                  기본값으로 복원
+                </button>
+                <button type="button" className="primary" onClick={closeColumnDialog}>
+                  적용·닫기
+                </button>
+              </div>
+            </div>
+          </dialog>
           <dialog
             ref={addStockDialogRef}
             className="add-stock-dialog"
@@ -959,52 +1211,13 @@ export function DashboardPage() {
             <table className="data-table data-table-watchlist">
               <thead>
                 <tr>
-                  <th style={{ width: 44, textAlign: "center" }} scope="col" title="목록 상단에 고정">
-                    고정
-                  </th>
-                  <th style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("name")}>
-                    종목 {sortIndicator("name")}
-                  </th>
-                  <th style={{ width: 52, textAlign: "center" }} scope="col" title="KOSPI / KOSDAQ / KONEX">
-                    시장
-                  </th>
-                  <th style={{ width: 56, textAlign: "center" }} scope="col" title="넥스트(NXT) 시간외 거래 시세 조회 가능 여부(KIS)">
-                    NXT
-                  </th>
-                  <th className="num" style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("price")}>
-                    현재가 {sortIndicator("price")}
-                  </th>
-                  <th className="num" style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("changeRate")}>
-                    등락률 {sortIndicator("changeRate")}
-                  </th>
-                  <th className="num" style={{ cursor: "pointer" }} scope="col" onClick={() => toggleSort("volume")}>
-                    거래량 {sortIndicator("volume")}
-                  </th>
-                  <th
-                    className="num"
-                    style={{ cursor: "pointer" }}
-                    scope="col"
-                    onClick={() => toggleSort("foreignNetBuyVolume")}
-                    title="당일 외국인 순매수 수량(주). 투자자 수급 TR 기준"
-                  >
-                    외인순매수 {sortIndicator("foreignNetBuyVolume")}
-                  </th>
-                  <th
-                    className="num"
-                    style={{ cursor: "pointer" }}
-                    scope="col"
-                    onClick={() => toggleSort("foreignOwnershipPct")}
-                    title="외국인 소진율(%)"
-                  >
-                    외인% {sortIndicator("foreignOwnershipPct")}
-                  </th>
-                  <th scope="col">세션</th>
+                  {activeVisibleColumns.map((key) => renderHeaderCell(key))}
                 </tr>
               </thead>
               <tbody>
                 {stocksLoading && stocks.length === 0 ? (
                   <tr>
-                    <td colSpan={10} style={{ padding: 24, textAlign: "center", color: "var(--muted-foreground)" }}>
+                    <td colSpan={activeVisibleColumns.length} style={{ padding: 24, textAlign: "center", color: "var(--muted-foreground)" }}>
                       <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                         <span className="loading-dot" aria-hidden />
                         종목 목록을 불러오는 중…
@@ -1025,57 +1238,103 @@ export function DashboardPage() {
                       key={s.id}
                       className={sel ? "selected" : undefined}
                       style={{ cursor: "pointer" }}
-                      onClick={() => setSelectedId(s.id)}
+                      onClick={() => selectStock(s.id)}
                     >
-                      <td style={{ textAlign: "center", verticalAlign: "middle", width: 44 }}>
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          style={{ fontSize: 11, padding: "2px 6px", minWidth: 32 }}
-                          aria-label={isPinned ? "상단 고정 해제" : "목록 상단에 고정"}
-                          aria-pressed={isPinned}
-                          title={isPinned ? "상단 고정 해제" : "목록 상단에 고정"}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            togglePin(s.id);
-                          }}
-                        >
-                          {isPinned ? "★" : "☆"}
-                        </button>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{s.name}</div>
-                        <div style={{ color: "var(--muted-foreground)", fontSize: 11 }}>{s.code}</div>
-                      </td>
-                      <td style={{ textAlign: "center", fontSize: 11, color: "var(--muted-foreground)" }}>
-                        {s.market ?? "—"}
-                      </td>
-                      <td style={{ textAlign: "center", verticalAlign: "middle" }}>
-                        {s.nxEligible === true ? (
-                          <span className="badge" title="넥스트(NXT) 시간외 매매 시세 사용 가능">
-                            NXT
-                          </span>
-                        ) : s.nxEligible === false ? (
-                          <span
-                            style={{ color: "var(--muted-foreground)", fontSize: 12 }}
-                            title="현재 NXT 미적격(일시 실패 포함). 서버가 주기적으로 재확인합니다."
-                          >
-                            —
-                          </span>
-                        ) : (
-                          <span style={{ color: "var(--muted-foreground)", fontSize: 11 }} title="KIS에서 아직 확인하지 않음">
-                            …
-                          </span>
-                        )}
-                      </td>
-                      <td className="num">{q ? formatQuotePrice(q) : "—"}</td>
-                      <td className={`num ${crCls}`}>
-                        {q ? `${q.changeRate >= 0 ? "+" : ""}${q.changeRate.toFixed(2)}%` : "—"}
-                      </td>
-                      <td className="num">{q ? q.volume.toLocaleString("ko-KR") : "—"}</td>
-                      <td className={`num ${fnCls}`}>{q ? formatForeignNetVol(q.foreignNetBuyVolume) : "—"}</td>
-                      <td className="num">{q ? formatForeignPct(q.foreignOwnershipPct) : "—"}</td>
-                      <td>{q?.marketSession ?? "—"}</td>
+                      {activeVisibleColumns.map((key) => {
+                        if (key === "pin") {
+                          return (
+                            <td key={key} style={{ textAlign: "center", verticalAlign: "middle", width: 44 }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ fontSize: 11, padding: "2px 6px", minWidth: 32 }}
+                                aria-label={isPinned ? "상단 고정 해제" : "목록 상단에 고정"}
+                                aria-pressed={isPinned}
+                                title={isPinned ? "상단 고정 해제" : "목록 상단에 고정"}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  togglePin(s.id);
+                                }}
+                              >
+                                {isPinned ? "★" : "☆"}
+                              </button>
+                            </td>
+                          );
+                        }
+                        if (key === "name") {
+                          return (
+                            <td key={key}>
+                              <div style={{ fontWeight: 600 }}>{s.name}</div>
+                              <div style={{ color: "var(--muted-foreground)", fontSize: 11 }}>{s.code}</div>
+                            </td>
+                          );
+                        }
+                        if (key === "market") {
+                          return (
+                            <td key={key} style={{ textAlign: "center", fontSize: 11, color: "var(--muted-foreground)" }}>
+                              {s.market ?? "—"}
+                            </td>
+                          );
+                        }
+                        if (key === "nxt") {
+                          return (
+                            <td key={key} style={{ textAlign: "center", verticalAlign: "middle" }}>
+                              {s.nxEligible === true ? (
+                                <span className="badge" title="넥스트(NXT) 시간외 매매 시세 사용 가능">
+                                  NXT
+                                </span>
+                              ) : s.nxEligible === false ? (
+                                <span
+                                  style={{ color: "var(--muted-foreground)", fontSize: 12 }}
+                                  title="현재 NXT 미적격(일시 실패 포함). 서버가 주기적으로 재확인합니다."
+                                >
+                                  —
+                                </span>
+                              ) : (
+                                <span style={{ color: "var(--muted-foreground)", fontSize: 11 }} title="KIS에서 아직 확인하지 않음">
+                                  …
+                                </span>
+                              )}
+                            </td>
+                          );
+                        }
+                        if (key === "price") {
+                          return (
+                            <td key={key} className="num">
+                              {q ? formatQuotePrice(q) : "—"}
+                            </td>
+                          );
+                        }
+                        if (key === "changeRate") {
+                          return (
+                            <td key={key} className={`num ${crCls}`}>
+                              {q ? `${q.changeRate >= 0 ? "+" : ""}${q.changeRate.toFixed(2)}%` : "—"}
+                            </td>
+                          );
+                        }
+                        if (key === "volume") {
+                          return (
+                            <td key={key} className="num">
+                              {q ? q.volume.toLocaleString("ko-KR") : "—"}
+                            </td>
+                          );
+                        }
+                        if (key === "foreignNetBuyVolume") {
+                          return (
+                            <td key={key} className={`num ${fnCls}`}>
+                              {q ? formatForeignNetVol(q.foreignNetBuyVolume) : "—"}
+                            </td>
+                          );
+                        }
+                        if (key === "foreignOwnershipPct") {
+                          return (
+                            <td key={key} className="num">
+                              {q ? formatForeignPct(q.foreignOwnershipPct) : "—"}
+                            </td>
+                          );
+                        }
+                        return <td key={key}>{q?.marketSession ?? "—"}</td>;
+                      })}
                     </tr>
                   );
                 })}
@@ -1083,7 +1342,7 @@ export function DashboardPage() {
             </table>
             </div>
           </div>
-          {selected ? (
+          {selected && !chartCollapsed ? (
             <div
               style={{
                 borderTop: "1px solid var(--border)",
@@ -1102,7 +1361,7 @@ export function DashboardPage() {
                   industryMajorName={selected.industryMajorName}
                   themeNames={selected.themes.map((t) => t.name)}
                   liveQuote={quotes.get(selected.code)}
-                  onFold={() => setSelectedId(null)}
+                  onFold={() => setChartCollapsed(true)}
                 />
               </div>
             </div>
@@ -1115,12 +1374,14 @@ export function DashboardPage() {
                 color: "var(--muted-foreground)",
               }}
             >
-              종목을 선택하면 가격 추이 차트(분·일·월·년)가 표시됩니다.
+              {selected
+                ? "차트를 접었습니다. 종목을 다시 선택하면 차트가 다시 열립니다."
+                : "종목을 선택하면 가격 추이 차트(분·일·월·년)가 표시됩니다."}
             </div>
           )}
         </div>
 
-        <div className="panel dashboard-panel-theme">
+        {!isMobile ? <div className="panel dashboard-panel-theme">
           <div className="panel-h">테마</div>
           <div className="panel-b" style={{ flex: 1 }}>
             <div style={{ marginBottom: 10, color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.4 }}>
@@ -1156,7 +1417,7 @@ export function DashboardPage() {
               </>
             )}
           </div>
-        </div>
+        </div> : null}
 
         <div className="panel dashboard-panel-news">
           <div className="panel-h">관련 뉴스</div>

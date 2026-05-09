@@ -403,10 +403,7 @@
   }
   .dashboard-mobile-filter-btn {
     display: inline-flex;
-    min-height: 40px;
-    padding: 8px 14px;
-    font-size: 13px;
-    font-weight: 600;
+    flex-shrink: 0;
   }
   .dashboard-search-row {
     display: flex;
@@ -429,9 +426,6 @@
   @media (min-width: 980px) {
     .dashboard-desktop-toolbar {
       display: flex;
-    }
-    .dashboard-mobile-filter-btn {
-      display: none;
     }
     .dashboard-header-actions {
       flex: 1;
@@ -476,7 +470,7 @@
   }
   @media (min-width: 980px) {
     .dashboard-grid {
-      grid-template-columns: minmax(0, 1fr) minmax(160px, 0.35fr) minmax(200px, 0.45fr);
+      grid-template-columns: minmax(0, 1.2fr) minmax(180px, 0.22fr) minmax(280px, 0.78fr);
     }
     .dashboard-panel-watchlist,
     .dashboard-panel-theme,
@@ -508,18 +502,18 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 40px;
-    padding: 8px 12px;
-    font-size: 13px;
-    font-weight: 600;
     text-decoration: none !important;
   }
   .dashboard-reset-filters-btn {
     flex-shrink: 0;
+  }
+  .dashboard-control-btn {
     min-height: 40px;
+    min-width: 110px;
     padding: 8px 12px;
-    font-size: 13px;
+    font-size: 13px !important;
     font-weight: 600;
+    justify-content: center;
   }
 
   .login-page-root {
