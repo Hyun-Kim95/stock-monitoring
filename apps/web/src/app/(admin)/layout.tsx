@@ -38,14 +38,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <div className="admin-brand-title">설정</div>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>{user.email}</div>
         </div>
+        <Link href="/" className="btn btn-secondary admin-back-dashboard">
+          ← 대시보드로 돌아가기
+        </Link>
         <AdminNav />
         <div className="admin-sidebar-footer">
-          <button type="button" className="btn" onClick={logout} style={{ width: "100%", marginBottom: 8 }}>
+          <button type="button" className="btn" onClick={logout} style={{ width: "100%" }}>
             로그아웃
           </button>
-          <Link href="/" className="admin-back-link">
-            ← 대시보드로 돌아가기
-          </Link>
         </div>
       </aside>
       <main className="admin-main">

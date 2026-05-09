@@ -1043,8 +1043,9 @@ export function PriceChartPanel({
               ?
             </button>
             <span id="chart-tip-storage" role="tooltip" className="chart-help-tip">
-              시세는 약 1초 간격으로 저장됩니다. 분봉은 종목이 처음 등록된 시점부터 누적되며, 빈 분은 건너뛰어
-              표시될 수 있습니다.
+              시세는 약 1초 간격으로 저장됩니다. 같은 종목은 한 번이라도 누군가 관심종목에 등록한 적이 있으면,
+              등록 이후 시세 수집이 시작된 시점부터 모아 온 구간만 분봉 차트에 나타납니다. 장이 열리지 않았거나
+              시세를 받지 못한 시간대는 비어 보일 수 있고, 값이 없는 분은 건너뛸 수 있습니다.
             </span>
           </span>
           {lwData.length > 0 ? (

@@ -177,9 +177,26 @@ export function DashboardPage() {
   const [addStockRegistering, setAddStockRegistering] = useState<string | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const addStockDialogRef = useRef<HTMLDialogElement>(null);
+  const filterDialogRef = useRef<HTMLDialogElement>(null);
   const addStockSearchInputRef = useRef<HTMLInputElement>(null);
 
   useChangeRateAlerts(quotes, { enabled: changeRateAlertsOn, threshold: alertThresholdPct });
+
+  const openFilterDialog = useCallback(() => {
+    filterDialogRef.current?.showModal();
+  }, []);
+
+  const closeFilterDialog = useCallback(() => {
+    filterDialogRef.current?.close();
+  }, []);
+
+  const resetDashboardFilters = useCallback(() => {
+    setFilterText("");
+    setMarketFilter("ALL");
+    setSessionFilter("ALL");
+    setNxtFilter("ALL");
+    setThemeFilterIds([]);
+  }, []);
 
   useEffect(() => {
     setPinnedIds(readPinnedStockIdsFromStorage());
@@ -635,69 +652,160 @@ export function DashboardPage() {
     return sortDir === "asc" ? "▲" : "▼";
   }
 
+  const alertExplainerTitle = `전일 대비 등락률이 +${alertThresholdPct}% 또는 −${alertThresholdPct}%를 넘을 때 알림을 보냅니다. 상·하 방향 모두 동일 기준입니다. 같은 구간에서는 한 번만 울리며, 등락률이 각각 ${alertThresholdPct - 1}%·−${alertThresholdPct - 1}% 쪽으로 충분히 되돌아온 뒤 다시 ±${alertThresholdPct}%를 넘으면 그때 다시 알립니다.`;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      <header
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "8px 12px",
-          borderBottom: "1px solid var(--border)",
-          gap: 12,
-        }}
-      >
-        <div style={{ fontWeight: 700 }}>관심종목 모니터링</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <span className="badge">{connected ? "WS 연결됨" : "WS 재연결 중"}</span>
-          {statusMsg ? <span className="badge">{statusMsg}</span> : null}
+    <div className="dashboard-root">
+      <header className="dashboard-header">
+        <div className="dashboard-header-top">
+          <div className="dashboard-title">관심종목 모니터링</div>
+          <div className="dashboard-header-actions">
+            <span className="badge dashboard-ws-badge">{connected ? "WS 연결됨" : "WS 재연결 중"}</span>
+            {statusMsg ? (
+              <span className="badge dashboard-ws-badge" title={statusMsg}>
+                {statusMsg}
+              </span>
+            ) : null}
+            <div className="dashboard-desktop-toolbar">
+              <select value={marketFilter} onChange={(e) => setMarketFilter(e.target.value)} aria-label="시장 필터">
+                <option value="ALL">시장: 전체</option>
+                {marketOptions.map((market) => (
+                  <option key={market} value={market}>
+                    시장: {market}
+                  </option>
+                ))}
+              </select>
+              <select value={sessionFilter} onChange={(e) => setSessionFilter(e.target.value)} aria-label="세션 필터">
+                <option value="ALL">세션: 전체</option>
+                {sessionOptions.map((session) => (
+                  <option key={session} value={session}>
+                    세션: {session}
+                  </option>
+                ))}
+              </select>
+              <select value={nxtFilter} onChange={(e) => setNxtFilter(e.target.value)} aria-label="NXT 필터">
+                <option value="ALL">NXT: 전체</option>
+                <option value="Y">NXT: 가능</option>
+                <option value="N">NXT: 미적격</option>
+                <option value="UNKNOWN">NXT: 확인중</option>
+              </select>
+              <div
+                style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}
+                title={alertExplainerTitle}
+              >
+                <label
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    cursor: "pointer",
+                    userSelect: "none",
+                  }}
+                >
+                  <input type="checkbox" checked={changeRateAlertsOn} onChange={() => void toggleChangeRateAlerts()} />
+                  등락률 알림
+                </label>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--muted-foreground)" }}>
+                  기준
+                  <select
+                    value={alertThresholdPct}
+                    onChange={(e) => {
+                      const v = parseChangeRateAlertThreshold(e.target.value);
+                      setAlertThresholdPct(v);
+                      try {
+                        localStorage.setItem("dashboard.changeRateAlertThreshold", String(v));
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                    style={{ fontSize: 12, padding: "2px 6px" }}
+                    aria-label="등락률 알림 기준(상·하 동일)"
+                  >
+                    {CHANGE_RATE_ALERT_THRESHOLDS.map((t) => (
+                      <option key={t} value={t}>
+                        ±{t}%
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {changeRateAlertErr ? (
+                <span style={{ fontSize: 11, color: "var(--down)", maxWidth: 220 }}>{changeRateAlertErr}</span>
+              ) : null}
+            </div>
+            <ThemeToggle />
+            <button type="button" className="btn btn-secondary dashboard-mobile-filter-btn" onClick={openFilterDialog}>
+              필터
+            </button>
+            <Link href="/admin/stocks" className="btn btn-secondary dashboard-settings-btn">
+              설정
+            </Link>
+          </div>
+        </div>
+        <div className="dashboard-search-row">
           <input
+            className="dashboard-filter-input"
             placeholder="종목명·코드·별칭 필터"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            style={{ minWidth: 200 }}
+            aria-label="종목명·코드·별칭 필터"
           />
-          <select value={marketFilter} onChange={(e) => setMarketFilter(e.target.value)} aria-label="시장 필터">
-            <option value="ALL">시장: 전체</option>
-            {marketOptions.map((market) => (
-              <option key={market} value={market}>
-                시장: {market}
-              </option>
-            ))}
-          </select>
-          <select value={sessionFilter} onChange={(e) => setSessionFilter(e.target.value)} aria-label="세션 필터">
-            <option value="ALL">세션: 전체</option>
-            {sessionOptions.map((session) => (
-              <option key={session} value={session}>
-                세션: {session}
-              </option>
-            ))}
-          </select>
-          <select value={nxtFilter} onChange={(e) => setNxtFilter(e.target.value)} aria-label="NXT 필터">
-            <option value="ALL">NXT: 전체</option>
-            <option value="Y">NXT: 가능</option>
-            <option value="N">NXT: 미적격</option>
-            <option value="UNKNOWN">NXT: 확인중</option>
-          </select>
-          <ThemeToggle />
-          <div
-            style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}
-            title={`전일 대비 등락률이 +${alertThresholdPct}% 또는 −${alertThresholdPct}%를 넘을 때 알림을 보냅니다. 상·하 방향 모두 동일 기준입니다. 같은 구간에서는 한 번만 울리며, 등락률이 각각 ${alertThresholdPct - 1}%·−${alertThresholdPct - 1}% 쪽으로 충분히 되돌아온 뒤 다시 ±${alertThresholdPct}%를 넘으면 그때 다시 알립니다.`}
-          >
-            <label
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                cursor: "pointer",
-                userSelect: "none",
-              }}
-            >
+          <button type="button" className="btn btn-secondary dashboard-reset-filters-btn" onClick={resetDashboardFilters}>
+            초기화
+          </button>
+        </div>
+      </header>
+
+      <dialog ref={filterDialogRef} className="dashboard-filter-dialog" aria-labelledby="dashboard-filter-dialog-title">
+        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <h2 id="dashboard-filter-dialog-title" style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+              상세 필터·알림
+            </h2>
+            <button type="button" className="btn btn-secondary" onClick={closeFilterDialog} aria-label="닫기">
+              닫기
+            </button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+              <span className="text-muted-foreground">시장</span>
+              <select value={marketFilter} onChange={(e) => setMarketFilter(e.target.value)} aria-label="시장 필터">
+                <option value="ALL">전체</option>
+                {marketOptions.map((market) => (
+                  <option key={market} value={market}>
+                    {market}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+              <span className="text-muted-foreground">세션</span>
+              <select value={sessionFilter} onChange={(e) => setSessionFilter(e.target.value)} aria-label="세션 필터">
+                <option value="ALL">전체</option>
+                {sessionOptions.map((session) => (
+                  <option key={session} value={session}>
+                    {session}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+              <span className="text-muted-foreground">NXT</span>
+              <select value={nxtFilter} onChange={(e) => setNxtFilter(e.target.value)} aria-label="NXT 필터">
+                <option value="ALL">전체</option>
+                <option value="Y">가능</option>
+                <option value="N">미적격</option>
+                <option value="UNKNOWN">확인중</option>
+              </select>
+            </label>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }} title={alertExplainerTitle}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
               <input type="checkbox" checked={changeRateAlertsOn} onChange={() => void toggleChangeRateAlerts()} />
               등락률 알림
             </label>
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--muted-foreground)" }}>
-              기준
+            <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--muted-foreground)" }}>
+              알림 기준
               <select
                 value={alertThresholdPct}
                 onChange={(e) => {
@@ -709,7 +817,6 @@ export function DashboardPage() {
                     /* ignore */
                   }
                 }}
-                style={{ fontSize: 12, padding: "2px 6px" }}
                 aria-label="등락률 알림 기준(상·하 동일)"
               >
                 {CHANGE_RATE_ALERT_THRESHOLDS.map((t) => (
@@ -720,34 +827,24 @@ export function DashboardPage() {
               </select>
             </label>
           </div>
-          {changeRateAlertErr ? (
-            <span style={{ fontSize: 11, color: "var(--down)", maxWidth: 200 }}>{changeRateAlertErr}</span>
-          ) : null}
-          <Link
-            href="/admin/stocks"
-            className="btn btn-secondary"
-            style={{ textDecoration: "none", fontSize: 12, padding: "4px 10px" }}
-          >
-            설정
-          </Link>
+          {changeRateAlertErr ? <div style={{ fontSize: 12, color: "var(--down)" }}>{changeRateAlertErr}</div> : null}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <button type="button" className="btn btn-secondary" onClick={resetDashboardFilters}>
+              조건 초기화
+            </button>
+            <button type="button" className="primary" onClick={closeFilterDialog}>
+              적용·닫기
+            </button>
+          </div>
         </div>
-      </header>
+      </dialog>
 
       {loadErr ? (
         <div style={{ padding: 12, color: "var(--down)" }}>{loadErr}</div>
       ) : null}
 
-      <div
-        style={{
-          flex: 1,
-          display: "grid",
-          gridTemplateColumns: "minmax(560px,1fr) minmax(220px,0.35fr) minmax(280px,0.5fr)",
-          gap: 8,
-          padding: 8,
-          minHeight: 0,
-        }}
-      >
-        <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div className="dashboard-grid">
+        <div className="panel dashboard-panel-watchlist">
           <div className="panel-h" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <span>관심종목</span>
             <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={openAddStockDialog}>
@@ -858,6 +955,7 @@ export function DashboardPage() {
             </div>
           </dialog>
           <div className="panel-b" style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "0 8px 8px" }}>
+            <div className="dashboard-watchlist-table-wrap">
             <table className="data-table data-table-watchlist">
               <thead>
                 <tr>
@@ -983,6 +1081,7 @@ export function DashboardPage() {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
           {selected ? (
             <div
@@ -1021,11 +1120,11 @@ export function DashboardPage() {
           )}
         </div>
 
-        <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+        <div className="panel dashboard-panel-theme">
           <div className="panel-h">테마</div>
           <div className="panel-b" style={{ flex: 1 }}>
             <div style={{ marginBottom: 10, color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.4 }}>
-              관심종목에 연결된 테마입니다. 클릭하면 왼쪽 목록에{" "}
+              관심종목에 연결된 테마입니다. 클릭하면 목록에{" "}
               <strong style={{ color: "var(--text)" }}>포함(OR)</strong>·다시 클릭하면 조건에서 뺍니다.
             </div>
             {portfolioThemes.length === 0 ? (
@@ -1059,7 +1158,7 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <div className="panel" style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+        <div className="panel dashboard-panel-news">
           <div className="panel-h">관련 뉴스</div>
           <div style={{ padding: "0 12px 6px", fontSize: 11, color: "var(--muted-foreground)" }}>
             최근 약 3개월(90일) 이내 기사만 표시합니다.

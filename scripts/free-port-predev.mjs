@@ -12,14 +12,23 @@ if (process.platform !== "win32") {
   process.exit(0);
 }
 
-const ps1 = join(root, "scripts", "free-port-4000.ps1");
-const result = spawnSync(
+const ps4000 = join(root, "scripts", "free-port-4000.ps1");
+const r4000 = spawnSync(
   "powershell.exe",
-  ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1],
+  ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps4000],
   { stdio: "inherit", cwd: root, shell: false },
 );
+if (r4000.error) {
+  console.warn("[stockMonitoring] free-port-4000 skipped:", r4000.error.message);
+}
 
-if (result.error) {
-  console.warn("[stockMonitoring] free-port skipped:", result.error.message);
+const ps3000 = join(root, "scripts", "free-port-3000.ps1");
+const r3000 = spawnSync(
+  "powershell.exe",
+  ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps3000],
+  { stdio: "inherit", cwd: root, shell: false },
+);
+if (r3000.error) {
+  console.warn("[stockMonitoring] free-port-3000 skipped:", r3000.error.message);
 }
 process.exit(0);

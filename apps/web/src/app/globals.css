@@ -359,6 +359,197 @@
     @apply grid grid-cols-1 gap-4 md:grid-cols-2;
   }
 
+  /* 관심종목 대시보드 — 반응형 */
+  .dashboard-root {
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
+  }
+  .dashboard-header {
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in oklab, var(--background), var(--card) 25%);
+  }
+  .dashboard-header-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    padding: 8px 12px;
+  }
+  .dashboard-title {
+    font-weight: 700;
+    font-size: clamp(0.9rem, 2.8vw, 1rem);
+    color: var(--text);
+  }
+  .dashboard-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    min-width: 0;
+    flex: 1;
+    justify-content: flex-end;
+  }
+  .dashboard-desktop-toolbar {
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    min-width: 0;
+  }
+  .dashboard-mobile-filter-btn {
+    display: inline-flex;
+    min-height: 40px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .dashboard-search-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0 12px 10px;
+    box-sizing: border-box;
+  }
+  .dashboard-filter-input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .dashboard-ws-badge {
+    max-width: 42vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  @media (min-width: 980px) {
+    .dashboard-desktop-toolbar {
+      display: flex;
+    }
+    .dashboard-mobile-filter-btn {
+      display: none;
+    }
+    .dashboard-header-actions {
+      flex: 1;
+    }
+    .dashboard-ws-badge {
+      max-width: none;
+    }
+  }
+  .dashboard-grid {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    gap: 8px;
+    padding: 8px;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+  }
+  .dashboard-panel-watchlist {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .dashboard-panel-theme,
+  .dashboard-panel-news {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  @media (min-width: 640px) and (max-width: 979px) {
+    .dashboard-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .dashboard-panel-watchlist {
+      grid-column: 1 / -1;
+    }
+    .dashboard-panel-theme {
+      grid-column: 1;
+    }
+    .dashboard-panel-news {
+      grid-column: 2;
+    }
+  }
+  @media (min-width: 980px) {
+    .dashboard-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(160px, 0.35fr) minmax(200px, 0.45fr);
+    }
+    .dashboard-panel-watchlist,
+    .dashboard-panel-theme,
+    .dashboard-panel-news {
+      grid-column: auto;
+    }
+  }
+  .dashboard-watchlist-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    min-height: 0;
+    margin: 0 -4px;
+    padding: 0 4px;
+  }
+  .dashboard-filter-dialog {
+    margin: auto;
+    max-width: min(440px, 94vw);
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0;
+    background: var(--card);
+    color: var(--card-foreground);
+  }
+  .dashboard-filter-dialog::backdrop {
+    background: color-mix(in oklab, #000 42%, transparent);
+  }
+  .dashboard-settings-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none !important;
+  }
+  .dashboard-reset-filters-btn {
+    flex-shrink: 0;
+    min-height: 40px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .login-page-root {
+    min-height: 100dvh;
+    display: grid;
+    place-items: center;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    box-sizing: border-box;
+  }
+  .login-page-card {
+    width: 100%;
+    max-width: min(360px, 100%);
+    padding: 20px;
+    box-sizing: border-box;
+  }
+  .login-oauth-stack {
+    display: grid;
+    gap: 10px;
+  }
+  .login-oauth-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none !important;
+  }
+
   .admin-shell {
     min-height: 100vh;
     display: grid;
@@ -425,13 +616,18 @@
     padding: 8px;
     border-top: 1px solid var(--border);
   }
-  .admin-back-link {
-    font-size: 11px;
-    color: var(--muted-foreground);
-    text-decoration: none !important;
+  .admin-back-dashboard {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    border-radius: 10px;
+    flex-shrink: 0;
   }
-  .admin-back-link:hover {
-    color: var(--text);
+  .admin-back-dashboard:hover {
+    border-color: color-mix(in oklab, var(--primary), var(--border) 40%);
   }
   .admin-main {
     min-width: 0;
@@ -627,21 +823,29 @@
   @media (max-width: 980px) {
     .admin-shell {
       grid-template-columns: 1fr;
+      padding-bottom: env(safe-area-inset-bottom);
     }
     .admin-sidebar {
       position: static;
       height: auto;
       border-right: none;
       border-bottom: 1px solid var(--border);
-      padding-bottom: 10px;
+      padding: max(12px, env(safe-area-inset-top)) 12px 12px;
     }
     .admin-nav {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
+      gap: 10px;
+    }
+    .admin-nav-item {
+      min-height: 44px;
+      padding-top: 10px;
+      padding-bottom: 10px;
     }
     .admin-main {
       padding: 12px;
+      padding-left: max(12px, env(safe-area-inset-left));
+      padding-right: max(12px, env(safe-area-inset-right));
     }
   }
 
