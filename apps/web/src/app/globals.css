@@ -212,6 +212,18 @@
     @apply bg-primary/15;
   }
 
+  .admin-inquiries-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 1.1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    .admin-inquiries-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
   /** 관심종목 대시보드: sticky 헤더가 collapse 테이블에서 어긋나지 않도록 */
   table.data-table.data-table-watchlist {
     border-collapse: separate;
@@ -644,7 +656,7 @@
     }
     .dashboard-header-trailing-three {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 6px;
       flex: 1 1 auto;
       min-width: 0;

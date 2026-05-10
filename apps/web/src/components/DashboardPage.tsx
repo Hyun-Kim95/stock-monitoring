@@ -942,9 +942,6 @@ export function DashboardPage() {
               >
                 필터
               </button>
-              <Link href="/contact" className={`${headerButtonClass} dashboard-settings-btn`}>
-                문의
-              </Link>
               <Link href="/admin/stocks" className={`${headerButtonClass} dashboard-settings-btn`}>
                 설정
               </Link>
