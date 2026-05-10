@@ -421,6 +421,7 @@ export function PriceChartPanel({
   industryMajorName,
   themeNames,
   liveQuote,
+  fillHeight = false,
   onFold,
 }: {
   stockId: string;
@@ -430,6 +431,8 @@ export function PriceChartPanel({
   industryMajorName?: string | null;
   themeNames?: string[];
   liveQuote?: QuoteSnapshot;
+  /** 부모가 bounded height일 때 차트 캔버스 높이를 영역에 맞춤(모바일 대시보드 등) */
+  fillHeight?: boolean;
   onFold?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -667,8 +670,10 @@ export function PriceChartPanel({
       unsubCrosshair = null;
       ro = null;
 
-      const w = Math.max(200, containerRef.current.clientWidth);
-      const h = 280;
+      const el = containerRef.current;
+      const w = Math.max(200, el?.clientWidth ?? 200);
+      const rawH = fillHeight && el ? el.clientHeight : 280;
+      const h = fillHeight ? Math.max(160, rawH > 0 ? rawH : 280) : 280;
       const isMinute = granularity === "minute";
 
       const chart = mod.createChart(containerRef.current, {
@@ -812,9 +817,29 @@ export function PriceChartPanel({
 
       ro = new ResizeObserver(() => {
         if (!containerRef.current || !chartRef.current) return;
-        chartRef.current.applyOptions({ width: Math.max(200, containerRef.current.clientWidth) });
+        if (fillHeight) {
+          const rw = Math.max(200, containerRef.current.clientWidth);
+          const rh = Math.max(160, containerRef.current.clientHeight);
+          chartRef.current.applyOptions({ width: rw, height: rh });
+        } else {
+          chartRef.current.applyOptions({
+            width: Math.max(200, containerRef.current.clientWidth),
+            height: 280,
+          });
+        }
       });
       ro.observe(containerRef.current);
+      if (fillHeight && containerRef.current) {
+        const syncFill = () => {
+          if (!chartRef.current || !containerRef.current) return;
+          const rw = Math.max(200, containerRef.current.clientWidth);
+          const rh = Math.max(160, containerRef.current.clientHeight);
+          chartRef.current.applyOptions({ width: rw, height: rh });
+        };
+        requestAnimationFrame(() => {
+          requestAnimationFrame(syncFill);
+        });
+      }
     });
 
     return () => {
@@ -836,7 +861,7 @@ export function PriceChartPanel({
       prevDataLenRef.current = 0;
       setHoverBar(null);
     };
-  }, [stockId, granularity, barLimit, minuteFrame, hasChartData, applyVisibleExtremaMarkers]);
+  }, [stockId, granularity, barLimit, minuteFrame, hasChartData, applyVisibleExtremaMarkers, fillHeight]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -944,7 +969,19 @@ export function PriceChartPanel({
     changeRate == null ? "var(--muted-foreground)" : changeRate > 0 ? "var(--up)" : changeRate < 0 ? "var(--down)" : "var(--text)";
 
   return (
-    <div style={{ minHeight: 200 }}>
+    <div
+      style={
+        fillHeight
+          ? {
+              display: "flex",
+              flexDirection: "column",
+              flex: 1,
+              minHeight: 0,
+              height: "100%",
+            }
+          : { minHeight: 200 }
+      }
+    >
       <div style={{ marginBottom: 8 }}>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
           <span style={{ fontWeight: 700, fontSize: 14 }}>
@@ -1086,7 +1123,19 @@ export function PriceChartPanel({
       ) : null}
       {lwData.length > 0 ? (
         <>
-          <div ref={containerRef} style={{ width: "100%", height: 280, position: "relative" }} />
+          <div
+            ref={containerRef}
+            style={
+              fillHeight
+                ? {
+                    flex: 1,
+                    minHeight: 160,
+                    minWidth: 0,
+                    width: "100%",
+                  }
+                : { width: "100%", height: 280, position: "relative" }
+            }
+          />
           <div
             style={{
               marginTop: 8,

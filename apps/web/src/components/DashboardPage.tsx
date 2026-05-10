@@ -1208,6 +1208,7 @@ export function DashboardPage() {
               ) : null}
             </div>
           </dialog>
+          <div className="dashboard-watchlist-body">
           <div className="dashboard-watchlist-scroll">
           <div className="panel-b dashboard-watchlist-panel-b" style={{ padding: "0 8px 8px" }}>
             <div className="dashboard-watchlist-table-wrap">
@@ -1345,17 +1346,29 @@ export function DashboardPage() {
             </table>
             </div>
           </div>
+          </div>
+          <div className="dashboard-watchlist-chart-section">
           {selected && !chartCollapsed ? (
             <div
               style={{
                 borderTop: "1px solid var(--border)",
-                flexShrink: 0,
+                flex: isMobile ? "1 1 auto" : undefined,
+                minHeight: isMobile ? 0 : undefined,
                 background: "var(--background)",
                 display: "flex",
                 flexDirection: "column",
               }}
             >
-              <div style={{ padding: 12, paddingTop: 8, flex: 1, minHeight: 0 }}>
+              <div
+                style={{
+                  padding: 12,
+                  paddingTop: 8,
+                  flex: 1,
+                  minHeight: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
                 <PriceChartPanel
                   stockId={selected.id}
                   stockName={selected.name}
@@ -1363,6 +1376,7 @@ export function DashboardPage() {
                   industryMajorName={selected.industryMajorName}
                   themeNames={selected.themes.map((t) => t.name)}
                   liveQuote={quotes.get(selected.code)}
+                  fillHeight={isMobile}
                   onFold={() => setChartCollapsed(true)}
                 />
               </div>
@@ -1374,6 +1388,8 @@ export function DashboardPage() {
                 padding: 12,
                 fontSize: 12,
                 color: "var(--muted-foreground)",
+                flex: isMobile ? "1 1 auto" : undefined,
+                minHeight: isMobile ? 0 : undefined,
               }}
             >
               {selected
@@ -1381,6 +1397,7 @@ export function DashboardPage() {
                 : "종목을 선택하면 가격 추이 차트(분·일·월·년)가 표시됩니다."}
             </div>
           )}
+          </div>
           </div>
         </div>
 
@@ -1433,7 +1450,7 @@ export function DashboardPage() {
               </>
             ) : null}
           </div>
-          <div className="panel-b" style={{ flex: 1 }}>
+          <div className="panel-b">
             {!selectedId ? (
               <div style={{ color: "var(--muted-foreground)" }}>종목을 선택하세요.</div>
             ) : newsErr ? (

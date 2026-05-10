@@ -443,9 +443,20 @@
   @media (min-width: 980px) {
     .dashboard-desktop-toolbar {
       display: flex;
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow-x: auto;
+      flex-wrap: nowrap;
+      -webkit-overflow-scrolling: touch;
     }
     .dashboard-header-actions {
       flex: 1;
+      flex-wrap: nowrap;
+    }
+    .dashboard-header-actions .dashboard-control-btn,
+    .dashboard-header-actions .dashboard-settings-btn,
+    .dashboard-header-actions .dashboard-mobile-filter-btn {
+      flex-shrink: 0;
     }
     .dashboard-ws-badge {
       max-width: none;
@@ -458,15 +469,21 @@
     gap: 8px;
     padding: 8px;
     grid-template-columns: minmax(0, 1fr);
-    align-content: start;
+    align-content: stretch;
   }
   .dashboard-panel-watchlist {
     min-height: 0;
     display: flex;
     flex-direction: column;
   }
-  .dashboard-watchlist-scroll {
+  .dashboard-watchlist-body {
+    display: flex;
+    flex-direction: column;
     flex: 1;
+    min-height: 0;
+  }
+  .dashboard-watchlist-scroll {
+    flex: 1 1 auto;
     min-height: 0;
     overflow-x: hidden;
     overflow-y: auto;
@@ -484,6 +501,31 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+  .dashboard-watchlist-chart-section {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .dashboard-panel-news .panel-b {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+  }
+  @media (max-width: 979px) {
+    .dashboard-grid {
+      grid-template-rows: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    }
+    .dashboard-watchlist-scroll {
+      flex: 0 1 auto;
+      max-height: min(42vh, 360px);
+    }
+    .dashboard-watchlist-chart-section {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
   }
   @media (min-width: 640px) and (max-width: 979px) {
     .dashboard-grid {
@@ -535,8 +577,11 @@
     justify-content: center;
     text-decoration: none !important;
   }
-  .dashboard-reset-filters-btn {
-    flex-shrink: 0;
+  .dashboard-reset-filters-btn.dashboard-control-btn {
+    flex: 0 0 auto;
+    min-width: 0;
+    max-width: fit-content;
+    width: auto;
   }
   .dashboard-control-btn {
     min-height: 40px;
@@ -580,6 +625,13 @@
       padding: 6px 8px;
       font-size: 11px !important;
       white-space: nowrap;
+    }
+    .dashboard-reset-filters-btn.dashboard-control-btn {
+      flex: 0 0 auto;
+      min-width: 0;
+      max-width: fit-content;
+      padding-left: 10px;
+      padding-right: 10px;
     }
     .dashboard-ws-badge {
       max-width: 38vw;
