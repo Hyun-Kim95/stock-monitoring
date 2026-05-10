@@ -1377,6 +1377,7 @@ export function DashboardPage() {
                   themeNames={selected.themes.map((t) => t.name)}
                   liveQuote={quotes.get(selected.code)}
                   fillHeight={isMobile}
+                  compactHeader={isMobile}
                   onFold={() => setChartCollapsed(true)}
                 />
               </div>

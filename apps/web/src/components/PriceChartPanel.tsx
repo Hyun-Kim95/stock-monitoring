@@ -422,6 +422,7 @@ export function PriceChartPanel({
   themeNames,
   liveQuote,
   fillHeight = false,
+  compactHeader = false,
   onFold,
 }: {
   stockId: string;
@@ -433,6 +434,8 @@ export function PriceChartPanel({
   liveQuote?: QuoteSnapshot;
   /** 부모가 bounded height일 때 차트 캔버스 높이를 영역에 맞춤(모바일 대시보드 등) */
   fillHeight?: boolean;
+  /** true면 종목명·등락률·현재가 등 상단 견적 행을 숨기고 차트 영역을 넓힘 */
+  compactHeader?: boolean;
   onFold?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -982,42 +985,56 @@ export function PriceChartPanel({
           : { minHeight: 200 }
       }
     >
-      <div style={{ marginBottom: 8 }}>
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>
-            {stockName}
-            {metaParts.length > 0 ? ` (${metaParts.join(" · ")})` : ""}
-          </span>
-          {themeNames && themeNames.length > 3 ? (
+      <div style={{ marginBottom: compactHeader ? 4 : 8 }}>
+        {!compactHeader ? (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>
+              {stockName}
+              {metaParts.length > 0 ? ` (${metaParts.join(" · ")})` : ""}
+            </span>
+            {themeNames && themeNames.length > 3 ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ fontSize: 11, padding: "1px 8px" }}
+                onClick={() => setShowAllThemes((v) => !v)}
+              >
+                {showAllThemes ? "접기" : `테마 더보기 +${themeNames.length - 3}`}
+              </button>
+            ) : null}
+            {liveQuote ? (
+              <span style={{ fontSize: 13, fontWeight: 700, color: changeRateColor }}>{changeRateText}</span>
+            ) : null}
+            {liveQuote ? (
+              <span style={{ fontSize: 16, fontWeight: 800 }}>
+                현재가 {formatQuotePrice(liveQuote)}
+              </span>
+            ) : null}
+            {onFold ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ fontSize: 11, padding: "1px 8px", marginLeft: "auto" }}
+                aria-label="차트 닫기"
+                onClick={onFold}
+              >
+                차트 접기
+              </button>
+            ) : null}
+          </div>
+        ) : onFold ? (
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
             <button
               type="button"
               className="btn btn-secondary"
               style={{ fontSize: 11, padding: "1px 8px" }}
-              onClick={() => setShowAllThemes((v) => !v)}
-            >
-              {showAllThemes ? "접기" : `테마 더보기 +${themeNames.length - 3}`}
-            </button>
-          ) : null}
-          {liveQuote ? (
-            <span style={{ fontSize: 13, fontWeight: 700, color: changeRateColor }}>{changeRateText}</span>
-          ) : null}
-          {liveQuote ? (
-            <span style={{ fontSize: 16, fontWeight: 800 }}>
-              현재가 {formatQuotePrice(liveQuote)}
-            </span>
-          ) : null}
-          {onFold ? (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              style={{ fontSize: 11, padding: "1px 8px", marginLeft: "auto" }}
               aria-label="차트 닫기"
               onClick={onFold}
             >
               차트 접기
             </button>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>봉 단위</span>
           {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
