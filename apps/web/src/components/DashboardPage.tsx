@@ -932,8 +932,8 @@ export function DashboardPage() {
                 <span style={{ fontSize: 11, color: "var(--down)", maxWidth: 220 }}>{changeRateAlertErr}</span>
               ) : null}
             </div>
-            <div data-tour="theme-settings" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-              <ThemeToggle className={`${headerButtonClass} dashboard-theme-toggle`} />
+            <div className="dashboard-header-trailing-three" data-tour="theme-settings">
+              <ThemeToggle className={headerButtonClass} />
               <button
                 type="button"
                 className={`${headerButtonClass} dashboard-mobile-filter-btn`}
