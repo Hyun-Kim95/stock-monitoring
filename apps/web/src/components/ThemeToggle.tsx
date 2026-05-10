@@ -31,7 +31,7 @@ export function ThemeToggle({ className }: { className?: string } = {}) {
       type="button"
       onClick={toggle}
       className={className}
-      style={{ fontSize: 12, padding: "4px 10px" }}
+      style={className ? undefined : { fontSize: 12, padding: "4px 10px" }}
       title="다크/라이트 모드 전환"
     >
       {mode === "dark" ? "라이트 모드" : "다크 모드"}

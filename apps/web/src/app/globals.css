@@ -380,6 +380,23 @@
     gap: 8px 12px;
     padding: 8px 12px;
   }
+  .dashboard-header-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 12px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .dashboard-header-badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    justify-content: flex-end;
+  }
   .dashboard-title {
     font-weight: 700;
     font-size: clamp(0.9rem, 2.8vw, 1rem);
@@ -448,6 +465,20 @@
     display: flex;
     flex-direction: column;
   }
+  .dashboard-watchlist-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+  }
+  .dashboard-watchlist-scroll > .dashboard-watchlist-panel-b {
+    flex: 0 0 auto;
+    overflow: visible;
+    max-height: none;
+  }
   .dashboard-panel-theme,
   .dashboard-panel-news {
     min-height: 0;
@@ -514,6 +545,48 @@
     font-size: 13px !important;
     font-weight: 600;
     justify-content: center;
+  }
+
+  @media (max-width: 979px) {
+    .dashboard-header-top {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 6px;
+    }
+    .dashboard-header-title-row {
+      flex-wrap: nowrap;
+      width: 100%;
+    }
+    .dashboard-title {
+      flex: 0 1 auto;
+      min-width: 0;
+    }
+    .dashboard-header-badges {
+      flex: 1 1 auto;
+      justify-content: flex-end;
+      flex-wrap: nowrap;
+    }
+    .dashboard-header-actions {
+      flex: 1 1 auto;
+      width: 100%;
+      flex-wrap: nowrap;
+      justify-content: space-between;
+      gap: 6px;
+    }
+    .dashboard-control-btn {
+      min-height: 34px;
+      min-width: 0;
+      flex: 1 1 0;
+      padding: 6px 8px;
+      font-size: 11px !important;
+      white-space: nowrap;
+    }
+    .dashboard-ws-badge {
+      max-width: 38vw;
+      font-size: 9px;
+      padding-left: 4px;
+      padding-right: 4px;
+    }
   }
 
   .login-page-root {

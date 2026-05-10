@@ -58,7 +58,6 @@ const PINNED_STOCK_IDS_KEY = "dashboard.pinnedStockIds";
 const DASHBOARD_BASIC_FILTERS_KEY = "dashboard.basicFilters";
 const WATCHLIST_VISIBLE_COLUMNS_KEY = "dashboard.watchlistVisibleColumns";
 const MOBILE_BREAKPOINT_MAX = 979;
-const MOBILE_MAX_VISIBLE_COLUMNS = 6;
 const DEFAULT_VISIBLE_COLUMNS: ColumnKey[] = [
   "pin",
   "name",
@@ -747,9 +746,8 @@ export function DashboardPage() {
   const activeVisibleColumns = useMemo(() => {
     const allowed = new Set<ColumnKey>(visibleColumns);
     const ordered = DEFAULT_VISIBLE_COLUMNS.filter((key) => allowed.has(key));
-    const normalized = ordered.length > 0 ? ordered : DEFAULT_VISIBLE_COLUMNS;
-    return isMobile ? normalized.slice(0, MOBILE_MAX_VISIBLE_COLUMNS) : normalized;
-  }, [isMobile, visibleColumns]);
+    return ordered.length > 0 ? ordered : DEFAULT_VISIBLE_COLUMNS;
+  }, [visibleColumns]);
 
   const renderHeaderCell = (key: ColumnKey) => {
     if (key === "pin") {
@@ -840,14 +838,18 @@ export function DashboardPage() {
     <div className="dashboard-root">
       <header className="dashboard-header">
         <div className="dashboard-header-top">
-          <div className="dashboard-title">관심종목 모니터링</div>
+          <div className="dashboard-header-title-row">
+            <div className="dashboard-title">관심종목 모니터링</div>
+            <div className="dashboard-header-badges">
+              <span className="badge dashboard-ws-badge">{connected ? "WS 연결됨" : "WS 재연결 중"}</span>
+              {statusMsg ? (
+                <span className="badge dashboard-ws-badge" title={statusMsg}>
+                  {statusMsg}
+                </span>
+              ) : null}
+            </div>
+          </div>
           <div className="dashboard-header-actions">
-            <span className="badge dashboard-ws-badge">{connected ? "WS 연결됨" : "WS 재연결 중"}</span>
-            {statusMsg ? (
-              <span className="badge dashboard-ws-badge" title={statusMsg}>
-                {statusMsg}
-              </span>
-            ) : null}
             <div className="dashboard-desktop-toolbar">
               <select value={marketFilter} onChange={(e) => setMarketFilter(e.target.value)} aria-label="시장 필터">
                 <option value="ALL">시장: 전체</option>
@@ -1078,7 +1080,7 @@ export function DashboardPage() {
                 </button>
               </div>
               <p style={{ margin: 0, fontSize: 12, color: "var(--muted-foreground)" }}>
-                모바일에서는 선택한 컬럼 중 앞 6개만 표시됩니다.
+                좁은 화면에서는 표를 가로로 스크롤해 모든 컬럼을 볼 수 있습니다.
               </p>
               <div style={{ display: "grid", gap: 8 }}>
                 {COLUMN_OPTIONS.map((option) => (
@@ -1206,7 +1208,8 @@ export function DashboardPage() {
               ) : null}
             </div>
           </dialog>
-          <div className="panel-b" style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "0 8px 8px" }}>
+          <div className="dashboard-watchlist-scroll">
+          <div className="panel-b dashboard-watchlist-panel-b" style={{ padding: "0 8px 8px" }}>
             <div className="dashboard-watchlist-table-wrap">
             <table className="data-table data-table-watchlist">
               <thead>
@@ -1347,7 +1350,6 @@ export function DashboardPage() {
               style={{
                 borderTop: "1px solid var(--border)",
                 flexShrink: 0,
-                minHeight: 240,
                 background: "var(--background)",
                 display: "flex",
                 flexDirection: "column",
@@ -1379,6 +1381,7 @@ export function DashboardPage() {
                 : "종목을 선택하면 가격 추이 차트(분·일·월·년)가 표시됩니다."}
             </div>
           )}
+          </div>
         </div>
 
         {!isMobile ? <div className="panel dashboard-panel-theme">
