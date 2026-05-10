@@ -218,7 +218,7 @@ export async function createApiApplication(env: Env): Promise<{
     naverClientSecret: env.NAVER_CLIENT_SECRET,
   });
   await registerPreferenceRoutes(app, { prisma, requireAuthPre });
-  await registerInquiryRoutes(app, { prisma, requireAuthPre });
+  await registerInquiryRoutes(app, { prisma, requireAuthPre, adminPre });
 
   const wsQuotesAllowedOrigins = new Set(collectAllowedOrigins(env));
   const wsQuotesConnectionsByIp = new Map<string, number>();
