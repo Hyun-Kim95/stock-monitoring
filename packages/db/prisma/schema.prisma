@@ -54,6 +54,7 @@ model User {
   sessions    Session[]
   preferences UserPreference[]
   supportInquiries SupportInquiry[]
+  supportInquiryReplies SupportInquiryReply[]
 
   @@map("users")
 }
@@ -231,7 +232,22 @@ model SupportInquiry {
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replies SupportInquiryReply[]
 
   @@index([tenantId, createdAt(sort: Desc)])
   @@map("support_inquiries")
+}
+
+model SupportInquiryReply {
+  id           String   @id @default(uuid())
+  inquiryId    String   @map("inquiry_id")
+  authorUserId String   @map("author_user_id")
+  body         String   @map("body") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  inquiry SupportInquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+  author  User           @relation(fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  @@index([inquiryId, createdAt])
+  @@map("support_inquiry_replies")
 }
