@@ -2,7 +2,7 @@
 type: doc
 project: stockMonitoring
 doc_lane: requirements
-updated_at: 2026-04-12T00:04:11
+updated_at: 2026-05-10
 tags: [docs, vault-sync]
 ---
 
@@ -21,6 +21,9 @@ tags: [docs, vault-sync]
 - feature-user-management.md
 - admin-board-requirements.md
 - mobile-app-navigation.md
+
+**관리자 사이트(PRD 기준 초기 세트):** PRD [`admin-site-prd.md`](./admin-site-prd.md) · [`admin-site-ui-freeze.md`](./admin-site-ui-freeze.md) · [`admin-site-implementation-plan.md`](./admin-site-implementation-plan.md) · 분기 문서 [`admin-site/README.md`](./admin-site/README.md).
+
 ## Vault
 
 - [[stockMonitoring/docs/stockMonitoring-docs-hub|Hub]]
