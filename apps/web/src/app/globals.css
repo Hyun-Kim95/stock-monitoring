@@ -636,6 +636,13 @@
       padding-left: 10px;
       padding-right: 10px;
     }
+    .dashboard-theme-toggle.dashboard-control-btn {
+      flex: 0 1 auto;
+      flex-grow: 0;
+      min-width: min(148px, 52vw);
+      padding-left: 12px;
+      padding-right: 12px;
+    }
     .dashboard-ws-badge {
       max-width: 38vw;
       font-size: 9px;

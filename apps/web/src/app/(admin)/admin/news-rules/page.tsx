@@ -130,7 +130,7 @@ export default function AdminNewsRulesPage() {
     <div>
       {err ? <p style={{ color: "var(--down)" }}>{err}</p> : null}
 
-      <form className="panel" onSubmit={createRule} style={{ padding: 12, marginBottom: 16 }}>
+      <form data-tour="admin-news-rules-form" className="panel" onSubmit={createRule} style={{ padding: 12, marginBottom: 16 }}>
         <div className="panel-h" style={{ margin: "-12px -12px 12px" }}>
           규칙 추가
         </div>

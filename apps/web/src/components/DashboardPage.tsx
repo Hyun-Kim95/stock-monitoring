@@ -933,7 +933,7 @@ export function DashboardPage() {
               ) : null}
             </div>
             <div data-tour="theme-settings" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-              <ThemeToggle className={headerButtonClass} />
+              <ThemeToggle className={`${headerButtonClass} dashboard-theme-toggle`} />
               <button
                 type="button"
                 className={`${headerButtonClass} dashboard-mobile-filter-btn`}

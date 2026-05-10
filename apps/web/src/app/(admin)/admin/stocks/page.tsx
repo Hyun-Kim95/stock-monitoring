@@ -199,12 +199,12 @@ export default function AdminStocksPage() {
   return (
     <div>
       {err ? <p style={{ color: "var(--down)" }}>{err}</p> : null}
-      <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--muted-foreground)" }}>
+      <p data-tour="admin-stocks-summary" style={{ margin: "0 0 10px", fontSize: 12, color: "var(--muted-foreground)" }}>
         활성 관심종목: {stocks.filter((s) => s.isActive).length} / 최대 {maxActiveStocks}
       </p>
 
       <div className="admin-grid">
-        <form className="panel" onSubmit={submitStockForm} style={{ padding: 12 }}>
+        <form data-tour="admin-stocks-form" className="panel" onSubmit={submitStockForm} style={{ padding: 12 }}>
           <div
             className="panel-h"
             style={{ margin: "-12px -12px 12px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
@@ -352,7 +352,7 @@ export default function AdminStocksPage() {
           </button>
         </form>
 
-        <div className="panel" style={{ padding: 0 }}>
+        <div data-tour="admin-stocks-table" className="panel" style={{ padding: 0 }}>
           <div className="panel-h">등록된 종목</div>
           <div className="panel-b">
             <table className="data-table">
@@ -362,7 +362,7 @@ export default function AdminStocksPage() {
                   <th>코드</th>
                   <th>이름</th>
                   <th>시장</th>
-                  <th>별칭</th>
+                  <th>검색 별칭</th>
                   <th>산업대분류</th>
                   <th />
                 </tr>

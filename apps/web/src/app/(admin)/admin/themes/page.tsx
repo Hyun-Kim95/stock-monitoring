@@ -96,7 +96,7 @@ export default function AdminThemesPage() {
   }
 
   return (
-    <div>
+    <div data-tour="admin-themes-main">
       {err ? <p style={{ color: "var(--down)" }}>{err}</p> : null}
 
       <form className="panel" onSubmit={createTheme} style={{ padding: 12, marginBottom: 16 }}>
