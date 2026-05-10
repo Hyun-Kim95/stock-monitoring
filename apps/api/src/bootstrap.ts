@@ -24,11 +24,16 @@ import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerNewsRoutes } from "./routes/news.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerPreferenceRoutes } from "./routes/preferences.js";
+import { registerInquiryRoutes } from "./routes/inquiries.js";
 import { createQuoteHistoryRecorder } from "./modules/history/quote-history.js";
 import { runStartupMinuteChartPrewarmQueue, runStartupQuoteHistoryPrep } from "./modules/history/startup-quote-history.js";
 import { syncOfficialNamesBatch } from "./lib/naver-official-name-sync.js";
+import { collectAllowedOrigins, headersMatchAllowedOrigins, registerCsrfOriginProtection } from "./lib/csrf-origin.js";
 
 const SETTING_LAST_STOPPED_AT = "runtime.api.last_stopped_at";
+
+/** 동일 IP 동시 WS 연결 상한 (프록시 뒤에서는 trustProxy 미설정 시 왜곡 가능) */
+const WS_QUOTES_MAX_PER_IP = 30;
 
 export async function createApiApplication(env: Env): Promise<{
   app: FastifyInstance;
@@ -187,6 +192,8 @@ export async function createApiApplication(env: Env): Promise<{
     setRequestAuth(request, auth);
   });
 
+  registerCsrfOriginProtection(app, env);
+
   registerWriteRateLimit(app, { max: 120, windowMs: 60_000 });
 
   await registerHealthRoutes(app);
@@ -211,9 +218,28 @@ export async function createApiApplication(env: Env): Promise<{
     naverClientSecret: env.NAVER_CLIENT_SECRET,
   });
   await registerPreferenceRoutes(app, { prisma, requireAuthPre });
+  await registerInquiryRoutes(app, { prisma, requireAuthPre });
+
+  const wsQuotesAllowedOrigins = new Set(collectAllowedOrigins(env));
+  const wsQuotesConnectionsByIp = new Map<string, number>();
 
   await app.register(websocket);
-  app.get("/ws/quotes", { websocket: true }, (socket, _req) => {
+  app.get("/ws/quotes", { websocket: true }, (socket, request) => {
+    if (
+      wsQuotesAllowedOrigins.size === 0 ||
+      !headersMatchAllowedOrigins(request.headers, wsQuotesAllowedOrigins)
+    ) {
+      socket.close();
+      return;
+    }
+    const ip = request.ip;
+    const cur = wsQuotesConnectionsByIp.get(ip) ?? 0;
+    if (cur >= WS_QUOTES_MAX_PER_IP) {
+      socket.close();
+      return;
+    }
+    wsQuotesConnectionsByIp.set(ip, cur + 1);
+
     const ws = {
       send: (data: string) => socket.send(data),
       close: () => socket.close(),
@@ -228,7 +254,10 @@ export async function createApiApplication(env: Env): Promise<{
         loading: marketStartupLoading,
       }),
     );
-    socket.on("close", () => {
+    socket.once("close", () => {
+      const n = (wsQuotesConnectionsByIp.get(ip) ?? 1) - 1;
+      if (n <= 0) wsQuotesConnectionsByIp.delete(ip);
+      else wsQuotesConnectionsByIp.set(ip, n);
       sockets.delete(ws);
     });
   });

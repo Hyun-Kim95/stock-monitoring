@@ -15,6 +15,7 @@ export async function requireAdminToken(
   const auth = request.headers.authorization;
   if (auth !== `Bearer ${token}`) {
     await sendError(reply, 401, "UNAUTHORIZED", "관리자 토큰이 필요합니다.");
+    return;
   }
 }
 

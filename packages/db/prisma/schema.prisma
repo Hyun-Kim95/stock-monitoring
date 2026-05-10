@@ -36,6 +36,7 @@ model Tenant {
   stockThemeMaps StockThemeMap[]
   newsRules   NewsSourceRule[]
   settings    SystemSetting[]
+  supportInquiries SupportInquiry[]
 
   @@map("tenants")
 }
@@ -52,6 +53,7 @@ model User {
   oauthAccounts OAuthAccount[]
   sessions    Session[]
   preferences UserPreference[]
+  supportInquiries SupportInquiry[]
 
   @@map("users")
 }
@@ -216,4 +218,20 @@ model SystemSetting {
   @@unique([tenantId, settingKey])
   @@index([tenantId, settingKey])
   @@map("system_settings")
+}
+
+/** 사용자 문의(운영자 확인용, 추후 관리 화면에서 조회) */
+model SupportInquiry {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  userId    String   @map("user_id")
+  subject   String?  @map("subject")
+  message   String   @map("message") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("support_inquiries")
 }

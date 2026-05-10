@@ -80,7 +80,7 @@ export async function resolveAuthFromRequest(prisma: PrismaClient, request: Fast
     include: {
       user: {
         include: {
-          memberships: true,
+          memberships: { orderBy: { createdAt: "asc" }, take: 1 },
         },
       },
     },
@@ -90,7 +90,7 @@ export async function resolveAuthFromRequest(prisma: PrismaClient, request: Fast
     await prisma.session.delete({ where: { token } }).catch(() => undefined);
     return null;
   }
-  const membership = session.user.memberships[0];
+  const membership = session.user.memberships[0] ?? null;
   if (!membership) return null;
   return {
     userId: session.user.id,

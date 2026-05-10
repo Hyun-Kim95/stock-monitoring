@@ -148,6 +148,37 @@ export async function redisSetJson(key: string, value: unknown, ttlMs: number): 
   await runVoid(c, () => c.set(fullKey(key), JSON.stringify(value), { PX: ttlMs }));
 }
 
+/** GETDEL로 원자적 읽기·삭제(Redis 6.2+). 미지원이면 GET 후 DEL. */
+export async function redisGetDelJson<T>(key: string): Promise<T | null> {
+  const c = await getClient();
+  if (!c) return null;
+  const fk = fullKey(key);
+  try {
+    type WithGetDel = RedisClient & { getDel(key: string): Promise<string | null | undefined> };
+    const maybeGetDel = (c as WithGetDel).getDel;
+    const raw =
+      typeof maybeGetDel === "function"
+        ? await raceCommand(maybeGetDel.call(c, fk), null as string | null | undefined)
+        : await raceCommand(
+            (async () => {
+              const v = await c.get(fk);
+              if (v != null) await runVoid(c, () => c.del(fk));
+              return v;
+            })(),
+            null as string | null | undefined,
+          );
+    if (raw == null || raw === "") return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  } catch (e) {
+    if (isConnectionLikeError(e)) markRedisUnavailable(String(e), c);
+    return null;
+  }
+}
+
 export async function redisAcquireLock(key: string, ttlMs: number): Promise<boolean> {
   const c = await getClient();
   if (!c) return true;

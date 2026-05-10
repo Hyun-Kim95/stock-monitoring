@@ -12,14 +12,41 @@ import {
   revokeSession,
 } from "../lib/auth-session.js";
 import { logError } from "../lib/logger.js";
+import { normalizeSafeRelativeNext } from "../lib/safe-redirect.js";
+import { redisGetDelJson, redisGetJson, redisSetJson } from "../lib/redis.js";
 
 type Ctx = {
   prisma: PrismaClient;
   env: Env;
 };
 
-const stateStore = new Map<string, { provider: "google" | "kakao" | "naver"; next: string; expiresAt: number }>();
+type OAuthProviderKey = "google" | "kakao" | "naver";
+
+type OAuthStatePayload = { provider: OAuthProviderKey; next: string };
+
+const stateStore = new Map<string, { provider: OAuthProviderKey; next: string; expiresAt: number }>();
 const STATE_TTL_MS = 10 * 60 * 1000;
+
+async function storeOAuthState(state: string, payload: OAuthStatePayload): Promise<void> {
+  await redisSetJson(`oauth-state:${state}`, payload, STATE_TTL_MS);
+  const verify = await redisGetJson<OAuthStatePayload>(`oauth-state:${state}`);
+  if (verify != null && verify.provider && typeof verify.next === "string") {
+    return;
+  }
+  stateStore.set(state, { ...payload, expiresAt: Date.now() + STATE_TTL_MS });
+}
+
+async function consumeOAuthState(stateKey: string): Promise<OAuthStatePayload | null> {
+  const fromRedis = await redisGetDelJson<OAuthStatePayload>(`oauth-state:${stateKey}`);
+  if (fromRedis && fromRedis.provider && typeof fromRedis.next === "string") {
+    return fromRedis;
+  }
+  cleanupStateStore();
+  const mem = stateStore.get(stateKey);
+  stateStore.delete(stateKey);
+  if (!mem || mem.expiresAt < Date.now()) return null;
+  return { provider: mem.provider, next: mem.next };
+}
 
 function cleanupStateStore() {
   const now = Date.now();
@@ -72,9 +99,9 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: Ctx) {
     }
     cleanupStateStore();
     const q = request.query as { next?: string };
-    const next = q.next?.startsWith("/") ? q.next : "/";
+    const next = normalizeSafeRelativeNext(q.next);
     const state = randomBytes(20).toString("hex");
-    stateStore.set(state, { provider, next, expiresAt: Date.now() + STATE_TTL_MS });
+    await storeOAuthState(state, { provider, next });
     const redirect = redirectUri(env, provider);
 
     if (provider === "google") {
@@ -107,9 +134,8 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: Ctx) {
     const q = request.query as { code?: string; state?: string; error?: string };
     if (q.error) return reply.redirect(failToWeb(env, `oauth_${q.error}`));
     if (!q.code || !q.state) return reply.redirect(failToWeb(env, "oauth_invalid_callback"));
-    const state = stateStore.get(q.state);
-    stateStore.delete(q.state);
-    if (!state || state.provider !== provider || state.expiresAt < Date.now()) {
+    const oauthState = await consumeOAuthState(q.state);
+    if (!oauthState || oauthState.provider !== provider) {
       return reply.redirect(failToWeb(env, "oauth_state_invalid"));
     }
 
@@ -262,7 +288,7 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: Ctx) {
 
       const { token } = await createSession(prisma, user.id);
       reply.header("Set-Cookie", buildSessionCookie(token, env.NODE_ENV === "production"));
-      return reply.redirect(`${appRedirectBase(env)}${state.next}`);
+      return reply.redirect(`${appRedirectBase(env)}${oauthState.next}`);
     } catch (err) {
       const msg = String(err ?? "");
       logError("oauth callback failed", { provider, err: msg });
