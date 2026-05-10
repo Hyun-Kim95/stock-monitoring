@@ -16,6 +16,8 @@ import {
   type ChangeRateAlertThresholdPct,
 } from "@/hooks/useChangeRateAlerts";
 import { useQuotesWebSocket } from "@/hooks/useQuotesWebSocket";
+import { useDashboardOnboarding } from "@/hooks/useDashboardOnboarding";
+import { DashboardOnboardingTour } from "@/components/DashboardOnboardingTour";
 import { PriceChartPanel } from "@/components/PriceChartPanel";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -234,6 +236,7 @@ export function DashboardPage() {
   const addStockSearchInputRef = useRef<HTMLInputElement>(null);
 
   useChangeRateAlerts(quotes, { enabled: changeRateAlertsOn, threshold: alertThresholdPct });
+  const { tourOpen, openTour, finishTour } = useDashboardOnboarding();
 
   const openFilterDialog = useCallback(() => {
     filterDialogRef.current?.showModal();
@@ -839,7 +842,19 @@ export function DashboardPage() {
       <header className="dashboard-header">
         <div className="dashboard-header-top">
           <div className="dashboard-header-title-row">
-            <div className="dashboard-title">관심종목 모니터링</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: "1 1 auto" }}>
+              <div className="dashboard-title">관심종목 모니터링</div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ fontSize: 11, padding: "4px 10px", flexShrink: 0 }}
+                data-tour="help-replay"
+                aria-label="화면 설명 다시 보기"
+                onClick={openTour}
+              >
+                사용법
+              </button>
+            </div>
             <div className="dashboard-header-badges">
               <span className="badge dashboard-ws-badge">{connected ? "WS 연결됨" : "WS 재연결 중"}</span>
               {statusMsg ? (
@@ -850,7 +865,7 @@ export function DashboardPage() {
             </div>
           </div>
           <div className="dashboard-header-actions">
-            <div className="dashboard-desktop-toolbar">
+            <div className="dashboard-desktop-toolbar" data-tour="desktop-toolbar">
               <select value={marketFilter} onChange={(e) => setMarketFilter(e.target.value)} aria-label="시장 필터">
                 <option value="ALL">시장: 전체</option>
                 {marketOptions.map((market) => (
@@ -917,16 +932,23 @@ export function DashboardPage() {
                 <span style={{ fontSize: 11, color: "var(--down)", maxWidth: 220 }}>{changeRateAlertErr}</span>
               ) : null}
             </div>
-            <ThemeToggle className={headerButtonClass} />
-            <button type="button" className={`${headerButtonClass} dashboard-mobile-filter-btn`} onClick={openFilterDialog}>
-              필터
-            </button>
-            <Link href="/admin/stocks" className={`${headerButtonClass} dashboard-settings-btn`}>
-              설정
-            </Link>
+            <div data-tour="theme-settings" style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+              <ThemeToggle className={headerButtonClass} />
+              <button
+                type="button"
+                className={`${headerButtonClass} dashboard-mobile-filter-btn`}
+                data-tour="mobile-filter"
+                onClick={openFilterDialog}
+              >
+                필터
+              </button>
+              <Link href="/admin/stocks" className={`${headerButtonClass} dashboard-settings-btn`}>
+                설정
+              </Link>
+            </div>
           </div>
         </div>
-        <div className="dashboard-search-row">
+        <div className="dashboard-search-row" data-tour="search-row">
           <input
             className="dashboard-filter-input"
             placeholder="종목명·코드 필터"
@@ -1057,7 +1079,7 @@ export function DashboardPage() {
       ) : null}
 
       <div className="dashboard-grid">
-        <div className="panel dashboard-panel-watchlist">
+        <div className="panel dashboard-panel-watchlist" data-tour="watchlist-panel">
           <div className="panel-h" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <span>관심종목</span>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -1347,7 +1369,7 @@ export function DashboardPage() {
             </div>
           </div>
           </div>
-          <div className="dashboard-watchlist-chart-section">
+          <div className="dashboard-watchlist-chart-section" data-tour="chart-area">
           {selected && !chartCollapsed ? (
             <div
               style={{
@@ -1440,7 +1462,7 @@ export function DashboardPage() {
           </div>
         </div> : null}
 
-        <div className="panel dashboard-panel-news">
+        <div className="panel dashboard-panel-news" data-tour="news-panel">
           <div className="panel-h">관련 뉴스</div>
           <div style={{ padding: "0 12px 6px", fontSize: 11, color: "var(--muted-foreground)" }}>
             최근 약 3개월(90일) 이내 기사만 표시합니다.
@@ -1475,6 +1497,7 @@ export function DashboardPage() {
           </div>
         </div>
       </div>
+      <DashboardOnboardingTour open={tourOpen} onFinish={finishTour} />
     </div>
   );
 }

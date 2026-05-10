@@ -676,7 +676,7 @@ export function PriceChartPanel({
       const el = containerRef.current;
       const w = Math.max(200, el?.clientWidth ?? 200);
       const rawH = fillHeight && el ? el.clientHeight : 280;
-      const h = fillHeight ? Math.max(160, rawH > 0 ? rawH : 280) : 280;
+      const h = fillHeight ? Math.max(120, rawH > 0 ? rawH : 280) : 280;
       const isMinute = granularity === "minute";
 
       const chart = mod.createChart(containerRef.current, {
@@ -822,7 +822,7 @@ export function PriceChartPanel({
         if (!containerRef.current || !chartRef.current) return;
         if (fillHeight) {
           const rw = Math.max(200, containerRef.current.clientWidth);
-          const rh = Math.max(160, containerRef.current.clientHeight);
+          const rh = Math.max(120, containerRef.current.clientHeight);
           chartRef.current.applyOptions({ width: rw, height: rh });
         } else {
           chartRef.current.applyOptions({
@@ -836,7 +836,7 @@ export function PriceChartPanel({
         const syncFill = () => {
           if (!chartRef.current || !containerRef.current) return;
           const rw = Math.max(200, containerRef.current.clientWidth);
-          const rh = Math.max(160, containerRef.current.clientHeight);
+          const rh = Math.max(120, containerRef.current.clientHeight);
           chartRef.current.applyOptions({ width: rw, height: rh });
         };
         requestAnimationFrame(() => {
@@ -1139,16 +1139,29 @@ export function PriceChartPanel({
         </div>
       ) : null}
       {lwData.length > 0 ? (
-        <>
+        <div
+          style={
+            fillHeight
+              ? {
+                  display: "flex",
+                  flexDirection: "column",
+                  flex: 1,
+                  minHeight: 0,
+                  width: "100%",
+                }
+              : { display: "flex", flexDirection: "column", width: "100%" }
+          }
+        >
           <div
             ref={containerRef}
             style={
               fillHeight
                 ? {
                     flex: 1,
-                    minHeight: 160,
+                    minHeight: 0,
                     minWidth: 0,
                     width: "100%",
+                    overflow: "hidden",
                   }
                 : { width: "100%", height: 280, position: "relative" }
             }
@@ -1157,6 +1170,7 @@ export function PriceChartPanel({
             style={{
               marginTop: 8,
               minHeight: 18,
+              flexShrink: 0,
               fontSize: 11,
               lineHeight: 1.55,
               color: "var(--muted-foreground)",
@@ -1194,7 +1208,7 @@ export function PriceChartPanel({
               </span>
             )}
           </div>
-        </>
+        </div>
       ) : null}
     </div>
   );

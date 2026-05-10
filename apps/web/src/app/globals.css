@@ -513,6 +513,11 @@
     overflow: auto;
   }
   @media (max-width: 979px) {
+    /* 차트 하단이 .panel overflow-hidden에 잘리는 완화(가로는 유지) */
+    .dashboard-panel-watchlist.panel {
+      overflow-x: hidden;
+      overflow-y: visible;
+    }
     .dashboard-grid {
       grid-template-rows: minmax(0, 1.1fr) minmax(0, 0.9fr);
     }
