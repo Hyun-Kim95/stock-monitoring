@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>관리자 UI 목업 — 안 A (로컬)</title>
+    <style>
+      /* 토큰: apps/web globals.css 와 동일 계열 (목업 전용 축약) */
+      :root {
+        --background: oklch(0.973 0.0133 286.1503);
+        --foreground: oklch(0.3015 0.0572 282.4176);
+        --card: oklch(1 0 0);
+        --muted-foreground: oklch(0.5426 0.0465 284.7435);
+        --border: oklch(0.9115 0.0216 285.9625);
+        --primary: oklch(0.5417 0.179 288.0332);
+        --primary-foreground: oklch(1 0 0);
+        --secondary: oklch(0.9174 0.0435 292.6901);
+        --destructive: oklch(0.6861 0.2061 14.9941);
+        --radius: 10px;
+        --text: var(--foreground);
+        --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+      .dark {
+        --background: oklch(0.1743 0.0227 283.7998);
+        --foreground: oklch(0.9185 0.0257 285.8834);
+        --card: oklch(0.2284 0.0384 282.9324);
+        --muted-foreground: oklch(0.7166 0.0462 285.1741);
+        --border: oklch(0.3261 0.0597 282.5832);
+        --primary: oklch(0.7162 0.1597 290.3962);
+        --primary-foreground: oklch(0.1743 0.0227 283.7998);
+        --secondary: oklch(0.3139 0.0736 283.4591);
+        --destructive: oklch(0.6861 0.2061 14.9941);
+        --text: var(--foreground);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: var(--font-sans);
+        background: var(--background);
+        color: var(--text);
+        min-height: 100vh;
+      }
+      .shell {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+      @media (max-width: 979px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+        .sidebar {
+          position: sticky;
+          top: 0;
+          z-index: 10;
+          flex-direction: row !important;
+          flex-wrap: wrap;
+          height: auto !important;
+          border-right: none !important;
+          border-bottom: 1px solid var(--border);
+        }
+        .sidebar nav {
+          flex-direction: row !important;
+          flex-wrap: wrap;
+          width: 100%;
+        }
+        .nav-item {
+          flex: 1 1 42%;
+        }
+      }
+      .sidebar {
+        border-right: 1px solid var(--border);
+        background: color-mix(in oklab, var(--card), var(--background) 40%);
+        padding: 16px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        height: 100vh;
+        position: sticky;
+        top: 0;
+      }
+      .brand-title {
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .brand-email {
+        font-size: 12px;
+        color: var(--muted-foreground);
+        margin-top: 6px;
+      }
+      nav {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .nav-item {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 8px 10px;
+        border-radius: var(--radius);
+        border: 1px solid transparent;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        text-align: left;
+        font: inherit;
+      }
+      .nav-item:hover {
+        background: color-mix(in oklab, var(--secondary), transparent 50%);
+        border-color: color-mix(in oklab, var(--primary), transparent 72%);
+      }
+      .nav-item.active {
+        background: color-mix(in oklab, var(--primary), transparent 82%);
+        border-color: color-mix(in oklab, var(--primary), transparent 60%);
+      }
+      .nav-label {
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .nav-desc {
+        font-size: 10px;
+        color: var(--muted-foreground);
+      }
+      .main {
+        padding: 18px 20px;
+        min-width: 0;
+      }
+      .main-inner {
+        max-width: 1200px;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .panel {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: color-mix(in oklab, var(--card), var(--background) 25%);
+        margin-bottom: 16px;
+        overflow: hidden;
+      }
+      .panel-h {
+        padding: 10px 14px;
+        font-weight: 700;
+        font-size: 13px;
+        border-bottom: 1px solid var(--border);
+      }
+      .panel-b {
+        padding: 12px 14px;
+      }
+      .btn {
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--secondary);
+        color: var(--text);
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .btn.primary {
+        background: var(--primary);
+        color: var(--primary-foreground);
+        border-color: transparent;
+      }
+      .btn.ghost {
+        background: transparent;
+      }
+      input,
+      select,
+      textarea {
+        font: inherit;
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--text);
+        width: 100%;
+        max-width: 320px;
+      }
+      .form-row {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      @media (max-width: 640px) {
+        .form-row {
+          grid-template-columns: 1fr;
+        }
+      }
+      table.data {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      table.data th,
+      table.data td {
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+      }
+      table.data th {
+        font-size: 11px;
+        color: var(--muted-foreground);
+        white-space: nowrap;
+      }
+      .scroll-x {
+        overflow-x: auto;
+      }
+      .banner {
+        padding: 10px 12px;
+        border-radius: 8px;
+        margin-bottom: 12px;
+        font-size: 13px;
+      }
+      .banner.err {
+        background: color-mix(in oklab, var(--destructive), transparent 85%);
+        color: var(--foreground);
+      }
+      .banner.info {
+        background: color-mix(in oklab, var(--primary), transparent 88%);
+      }
+      .hidden {
+        display: none !important;
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        background: var(--secondary);
+      }
+      .state-controls label {
+        font-size: 12px;
+        margin-right: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div>
+          <div class="toolbar" style="margin: 0; justify-content: space-between">
+            <span class="brand-title">설정</span>
+            <button type="button" class="btn ghost" id="themeToggle" aria-label="다크 모드 전환">테마</button>
+          </div>
+          <div class="brand-email">admin@example.com</div>
+        </div>
+        <button type="button" class="btn ghost" style="width: 100%">← 대시보드로</button>
+        <nav id="mainNav" aria-label="관리 메뉴">
+          <button type="button" class="nav-item active" data-view="stocks">
+            <span class="nav-label">종목 관리</span>
+            <span class="nav-desc">검색·등록·비활성</span>
+          </button>
+          <button type="button" class="nav-item" data-view="themes">
+            <span class="nav-label">테마 관리</span>
+            <span class="nav-desc">생성·종목 매핑</span>
+          </button>
+          <button type="button" class="nav-item" data-view="rules">
+            <span class="nav-label">뉴스 규칙</span>
+            <span class="nav-desc">포함·제외 키워드</span>
+          </button>
+          <button type="button" class="nav-item" data-view="settings">
+            <span class="nav-label">런타임 설정</span>
+            <span class="nav-desc">키·값 갱신</span>
+          </button>
+        </nav>
+        <div style="margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border)">
+          <button type="button" class="btn" style="width: 100%">로그아웃</button>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="main-inner">
+          <div class="toolbar state-controls">
+            <strong style="font-size: 13px">목업 상태 데모:</strong>
+            <label><input type="radio" name="demo" value="normal" checked /> 기본</label>
+            <label><input type="radio" name="demo" value="loading" /> 로딩</label>
+            <label><input type="radio" name="demo" value="empty" /> 빈 데이터</label>
+            <label><input type="radio" name="demo" value="error" /> 오류</label>
+          </div>
+
+          <!-- 종목 -->
+          <section id="view-stocks" class="view">
+            <div class="toolbar">
+              <h1 style="margin: 0; font-size: 1.25rem">종목 관리</h1>
+              <span class="pill">활성 12 / 최대 100</span>
+            </div>
+            <div id="stocks-banner" class="hidden"></div>
+            <div class="panel" id="stocks-form-panel">
+              <div class="panel-h">종목 추가 · 수정</div>
+              <div class="panel-b">
+                <div class="form-row">
+                  <label>종목명 검색</label>
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                    <input type="search" placeholder="예: 삼성전자" />
+                    <button type="button" class="btn primary">검색</button>
+                    <button type="button" class="btn ghost">초기화</button>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <label>종목코드</label>
+                  <input value="005930" />
+                </div>
+                <div class="form-row">
+                  <label>종목명</label>
+                  <input value="삼성전자" />
+                </div>
+                <button type="button" class="btn primary">등록</button>
+              </div>
+            </div>
+            <div class="panel" id="stocks-table-panel">
+              <div class="panel-h">등록된 종목</div>
+              <div class="panel-b scroll-x">
+                <table class="data" id="stocks-table">
+                  <thead>
+                    <tr>
+                      <th>상태</th>
+                      <th>코드</th>
+                      <th>이름</th>
+                      <th>시장</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="stocks-tbody">
+                    <tr>
+                      <td>활성</td>
+                      <td>005930</td>
+                      <td>삼성전자</td>
+                      <td>KOSPI</td>
+                      <td><button type="button" class="btn" style="color: var(--destructive)">비활성</button></td>
+                    </tr>
+                    <tr>
+                      <td>비활성</td>
+                      <td>000660</td>
+                      <td>SK하이닉스</td>
+                      <td>KOSPI</td>
+                      <td><button type="button" class="btn primary">활성</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- 테마 -->
+          <section id="view-themes" class="view hidden">
+            <div class="toolbar">
+              <h1 style="margin: 0; font-size: 1.25rem">테마 관리</h1>
+            </div>
+            <div id="themes-banner" class="hidden"></div>
+            <div class="panel">
+              <div class="panel-h">새 테마</div>
+              <div class="panel-b">
+                <div class="form-row">
+                  <label>이름</label>
+                  <input placeholder="예: 반도체" />
+                </div>
+                <div class="form-row">
+                  <label>설명</label>
+                  <input placeholder="선택" />
+                </div>
+                <button type="button" class="btn primary">추가</button>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-h">테마 카드 (예시)</div>
+              <div class="panel-b">
+                <p style="margin: 0 0 8px; font-size: 13px; font-weight: 600">반도체</p>
+                <p style="margin: 0 0 8px; font-size: 12px; color: var(--muted-foreground)">소속 종목 선택 · 검색 필터</p>
+                <button type="button" class="btn primary">매핑 저장</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 뉴스 규칙 -->
+          <section id="view-rules" class="view hidden">
+            <div class="toolbar">
+              <h1 style="margin: 0; font-size: 1.25rem">뉴스 규칙</h1>
+            </div>
+            <div id="rules-banner" class="hidden"></div>
+            <div class="panel">
+              <div class="panel-h">규칙 추가</div>
+              <div class="panel-b">
+                <div class="form-row">
+                  <label>스코프</label>
+                  <select>
+                    <option>GLOBAL</option>
+                    <option>STOCK</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label>포함 키워드</label>
+                  <input placeholder="선택" />
+                </div>
+                <div class="form-row">
+                  <label>제외 키워드</label>
+                  <input placeholder="선택" />
+                </div>
+                <button type="button" class="btn primary">저장</button>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-h">규칙 목록</div>
+              <div class="panel-b scroll-x">
+                <table class="data">
+                  <thead>
+                    <tr>
+                      <th>스코프</th>
+                      <th>포함</th>
+                      <th>제외</th>
+                      <th>우선순위</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>GLOBAL</td>
+                      <td>실적</td>
+                      <td>—</td>
+                      <td>10</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- 설정 -->
+          <section id="view-settings" class="view hidden">
+            <div class="toolbar">
+              <h1 style="margin: 0; font-size: 1.25rem">런타임 설정</h1>
+            </div>
+            <div id="settings-banner" class="hidden"></div>
+            <div class="panel">
+              <div class="panel-h">키 목록</div>
+              <div class="panel-b scroll-x">
+                <table class="data">
+                  <thead>
+                    <tr>
+                      <th>키</th>
+                      <th>값</th>
+                      <th>수정일</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>stocks.max_active</code></td>
+                      <td>100</td>
+                      <td>2026-05-01</td>
+                    </tr>
+                    <tr>
+                      <td><code>market_data.provider</code></td>
+                      <td>kis</td>
+                      <td>2026-05-02</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <p style="font-size: 11px; color: var(--muted-foreground); margin-top: 24px">
+            목업 전용 · 실제 API 호출 없음 · PRD 안 A 산출물 (`docs/design/admin-site-wireframes-option-a.md`)
+          </p>
+        </div>
+      </main>
+    </div>
+    <script>
+      const htmlEl = document.documentElement;
+      document.getElementById("themeToggle").addEventListener("click", () => {
+        htmlEl.classList.toggle("dark");
+      });
+
+      const views = {
+        stocks: document.getElementById("view-stocks"),
+        themes: document.getElementById("view-themes"),
+        rules: document.getElementById("view-rules"),
+        settings: document.getElementById("view-settings"),
+      };
+
+      document.querySelectorAll(".nav-item").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const v = btn.getAttribute("data-view");
+          document.querySelectorAll(".nav-item").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          Object.keys(views).forEach((k) => views[k].classList.toggle("hidden", k !== v));
+        });
+      });
+
+      function setDemoState(state) {
+        const stocksBanner = document.getElementById("stocks-banner");
+        const themesBanner = document.getElementById("themes-banner");
+        const rulesBanner = document.getElementById("rules-banner");
+        const settingsBanner = document.getElementById("settings-banner");
+        const tbody = document.getElementById("stocks-tbody");
+        const stocksForm = document.getElementById("stocks-form-panel");
+        const stocksTable = document.getElementById("stocks-table-panel");
+
+        [stocksBanner, themesBanner, rulesBanner, settingsBanner].forEach((b) => {
+          b.className = "hidden";
+          b.innerHTML = "";
+        });
+
+        tbody.innerHTML = "";
+        stocksForm.classList.remove("hidden");
+        stocksTable.classList.remove("hidden");
+
+        if (state === "loading") {
+          stocksBanner.className = "banner info";
+          stocksBanner.textContent = "불러오는 중…";
+          tbody.innerHTML =
+            '<tr><td colspan="5" style="color:var(--muted-foreground)">스켈레톤 자리</td></tr>';
+        } else if (state === "empty") {
+          tbody.innerHTML =
+            '<tr><td colspan="5" style="color:var(--muted-foreground)">등록된 종목이 없습니다.</td></tr>';
+        } else if (state === "error") {
+          stocksBanner.className = "banner err";
+          stocksBanner.textContent =
+            "오류: 활성 종목은 최대 100개까지입니다. (409 STOCK_LIMIT) — 비활성 종목을 정리하거나 상한을 조정하세요.";
+          tbody.innerHTML = `<tr><td>활성</td><td>005930</td><td>삼성전자</td><td>KOSPI</td><td><button type="button" class="btn">비활성</button></td></tr>`;
+        } else {
+          tbody.innerHTML = `<tr><td>활성</td><td>005930</td><td>삼성전자</td><td>KOSPI</td><td><button type="button" class="btn" style="color:var(--destructive)">비활성</button></td></tr>
+          <tr><td>비활성</td><td>000660</td><td>SK하이닉스</td><td>KOSPI</td><td><button type="button" class="btn primary">활성</button></td></tr>`;
+        }
+      }
+
+      document.querySelectorAll('input[name="demo"]').forEach((r) => {
+        r.addEventListener("change", () => setDemoState(r.value));
+      });
+    </script>
+  </body>
+</html>
