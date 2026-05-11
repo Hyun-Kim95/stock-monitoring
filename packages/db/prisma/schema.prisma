@@ -46,6 +46,8 @@ model User {
   email       String          @unique
   displayName String?         @map("display_name")
   avatarUrl   String?         @map("avatar_url")
+  /** 플랫폼 운영자(전역). 테넌트 OWNER/ADMIN과 별개 — PRD §9 */
+  isPlatformAdmin Boolean     @default(false) @map("is_platform_admin")
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
@@ -55,6 +57,7 @@ model User {
   preferences UserPreference[]
   supportInquiries SupportInquiry[]
   supportInquiryReplies SupportInquiryReply[]
+  platformAuditLogs PlatformAuditLog[]
 
   @@map("users")
 }
@@ -250,4 +253,23 @@ model SupportInquiryReply {
 
   @@index([inquiryId, createdAt])
   @@map("support_inquiry_replies")
+}
+
+/** 플랫폼 운영자 감사 로그 — PRD §4.4 A-01, §9 동일 트랜잭션 */
+model PlatformAuditLog {
+  id           String   @id @default(uuid())
+  actorUserId  String   @map("actor_user_id")
+  action       String
+  tenantId     String?  @map("tenant_id")
+  targetUserId String?  @map("target_user_id")
+  inquiryId    String?  @map("inquiry_id")
+  settingKey   String?  @map("setting_key")
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  actor User @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@map("platform_audit_logs")
 }

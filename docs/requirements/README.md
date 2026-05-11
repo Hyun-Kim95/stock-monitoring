@@ -24,6 +24,8 @@ tags: [docs, vault-sync]
 
 **설정 UI(PRD 기준 초기 세트):** PRD [`settings-ui-prd.md`](./settings-ui-prd.md) · [`settings-ui-freeze.md`](./settings-ui-freeze.md) · [`settings-ui-implementation-plan.md`](./settings-ui-implementation-plan.md) · 분기 문서 [`settings-ui/README.md`](./settings-ui/README.md).
 
+**플랫폼 운영자 사이트(PRD 기준 초기 세트):** PRD [`platform-operator-site-prd.md`](./platform-operator-site-prd.md) · 분기 문서 [`platform-operator-site/README.md`](./platform-operator-site/README.md).
+
 ## Vault
 
 - [[stockMonitoring/docs/stockMonitoring-docs-hub|Hub]]

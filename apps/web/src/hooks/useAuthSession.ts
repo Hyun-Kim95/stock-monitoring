@@ -9,6 +9,8 @@ export type SessionUser = {
   displayName: string | null;
   tenantId: string;
   role: "OWNER" | "ADMIN" | "MEMBER";
+  /** `GET /auth/me` — DB `User.isPlatformAdmin` */
+  isPlatformOperator: boolean;
 };
 
 export function useAuthSession() {
@@ -18,8 +20,16 @@ export function useAuthSession() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiGet<{ user: SessionUser }>("/auth/me");
-      setUser(data.user);
+      const data = await apiGet<{ user: SessionUser & { isPlatformOperator?: boolean } }>("/auth/me");
+      const u = data.user;
+      setUser({
+        userId: u.userId,
+        email: u.email,
+        displayName: u.displayName,
+        tenantId: u.tenantId,
+        role: u.role,
+        isPlatformOperator: Boolean(u.isPlatformOperator),
+      });
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         setUser(null);

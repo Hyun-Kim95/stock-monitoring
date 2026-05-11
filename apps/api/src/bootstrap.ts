@@ -8,6 +8,7 @@ import type { QuoteSnapshot } from "@stock-monitoring/shared";
 import type { Env } from "./config.js";
 import {
   createRequireAuthPreHandler,
+  createRequirePlatformOperatorPreHandler,
   getRequestAuth,
   resolveAuthFromRequest,
   setRequestAuth,
@@ -25,6 +26,7 @@ import { registerNewsRoutes } from "./routes/news.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerPreferenceRoutes } from "./routes/preferences.js";
 import { registerInquiryRoutes } from "./routes/inquiries.js";
+import { registerPlatformRoutes } from "./routes/platform.js";
 import { createQuoteHistoryRecorder } from "./modules/history/quote-history.js";
 import { runStartupMinuteChartPrewarmQueue, runStartupQuoteHistoryPrep } from "./modules/history/startup-quote-history.js";
 import { syncOfficialNamesBatch } from "./lib/naver-official-name-sync.js";
@@ -41,6 +43,7 @@ export async function createApiApplication(env: Env): Promise<{
   runAfterListen: () => Promise<void>;
 }> {
   const requireAuthPre = createRequireAuthPreHandler();
+  const platformPre = createRequirePlatformOperatorPreHandler();
   const adminPre = (async (request, reply) => {
     if (env.ADMIN_API_TOKEN) {
       const auth = request.headers.authorization;
@@ -198,6 +201,7 @@ export async function createApiApplication(env: Env): Promise<{
 
   await registerHealthRoutes(app);
   await registerAuthRoutes(app, { prisma, env });
+  await registerPlatformRoutes(app, { prisma, platformPre });
 
   await registerStockRoutes(app, {
     prisma,

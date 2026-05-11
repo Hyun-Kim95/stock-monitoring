@@ -5,12 +5,14 @@ import type { PrismaClient, MemberRole, OAuthProvider } from "@prisma/client";
 const SESSION_COOKIE = "sm_session";
 const SESSION_MAX_AGE_SEC = 60 * 60 * 24 * 14;
 
-type AuthContext = {
+export type AuthContext = {
   userId: string;
   email: string;
   displayName: string | null;
   tenantId: string;
   role: MemberRole;
+  /** DB `User.isPlatformAdmin` — 플랫폼 `/platform/*` 및 `/auth/me` 노출용 */
+  isPlatformOperator: boolean;
 };
 
 function parseCookies(raw: string | undefined): Record<string, string> {
@@ -98,6 +100,7 @@ export async function resolveAuthFromRequest(prisma: PrismaClient, request: Fast
     displayName: session.user.displayName,
     tenantId: membership.tenantId,
     role: membership.role,
+    isPlatformOperator: session.user.isPlatformAdmin,
   };
 }
 
@@ -126,6 +129,19 @@ export function createRequireAdminRolePreHandler(): preHandlerHookHandler {
     }
     if (auth.role !== "OWNER" && auth.role !== "ADMIN") {
       return reply.status(403).send({ error: { code: "FORBIDDEN", message: "관리 권한이 필요합니다." } });
+    }
+  };
+}
+
+/** 플랫폼 운영자 API 전용 — `adminPre`·Bearer 관리 토큰과 OR 하지 않는다. */
+export function createRequirePlatformOperatorPreHandler(): preHandlerHookHandler {
+  return async (request, reply) => {
+    const auth = getRequestAuth(request);
+    if (!auth) {
+      return reply.status(401).send({ error: { code: "UNAUTHORIZED", message: "로그인이 필요합니다." } });
+    }
+    if (!auth.isPlatformOperator) {
+      return reply.status(403).send({ error: { code: "FORBIDDEN", message: "플랫폼 운영 권한이 필요합니다." } });
     }
   };
 }
