@@ -980,7 +980,7 @@ export function PriceChartPanel({
               flexDirection: "column",
               flex: 1,
               minHeight: 0,
-              height: "100%",
+              /* height:100% 는 iOS·중첩 flex에서 부모 높이 미전달 시 과대 계산되어 캔들이 잘리는 경우가 있어 제외 */
             }
           : { minHeight: 200 }
       }
