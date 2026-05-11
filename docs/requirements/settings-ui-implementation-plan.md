@@ -3,16 +3,16 @@ type: doc
 project: stockMonitoring
 doc_lane: requirements
 updated_at: 2026-05-10
-tags: [admin, implementation, plan]
-related_prd: ./admin-site-prd.md
-ui_freeze: ./admin-site-ui-freeze.md
+tags: [settings-ui, implementation, plan]
+related_prd: ./settings-ui-prd.md
+ui_freeze: ./settings-ui-freeze.md
 ---
 
-# 관리자 UI — 분할 구현 계획
+# 설정 UI — 분할 구현 계획
 
-**UI 고정:** [`admin-site-ui-freeze.md`](./admin-site-ui-freeze.md)  
-**PRD:** [`admin-site-prd.md`](./admin-site-prd.md)  
-**계약·운영:** [`admin-site/api-contract.md`](./admin-site/api-contract.md) · [`admin-site/operations.md`](./admin-site/operations.md)
+**UI 고정:** [`settings-ui-freeze.md`](./settings-ui-freeze.md)  
+**PRD:** [`settings-ui-prd.md`](./settings-ui-prd.md)  
+**계약·운영:** [`settings-ui/api-contract.md`](./settings-ui/api-contract.md) · [`settings-ui/operations.md`](./settings-ui/operations.md)
 
 ## 역할 (AGENTS.md)
 
@@ -20,7 +20,7 @@ ui_freeze: ./admin-site-ui-freeze.md
 |------|-----------|
 | **frontend-agent** | 네비·각 `page.tsx`·`globals.css`·오류 UI·반응형·다크모드 |
 | **backend-agent** | API 동작 변경이 필요할 때만(예: 뉴스 규칙 PATCH 캐시 무효화) |
-| **qa-agent** | 트랙 완료 후 [`admin-site/qa-checklist.md`](./admin-site/qa-checklist.md) |
+| **qa-agent** | 트랙 완료 후 [`settings-ui/qa-checklist.md`](./settings-ui/qa-checklist.md) |
 | **docs-agent** | Freeze·본 계획·PRD 상호 링크 유지(선택) |
 
 ## 프론트·백엔드·공통 의존관계
@@ -31,8 +31,8 @@ ui_freeze: ./admin-site-ui-freeze.md
 
 | 층 | 산출물·작업 | 선행(반드시 먼저) | 후행·병렬 |
 |----|-------------|-------------------|-----------|
-| **공통(문서·계약)** | PRD §7·§8, [`admin-site/api-contract.md`](./admin-site/api-contract.md), [`admin-site-ui-freeze.md`](./admin-site-ui-freeze.md) | 제품 정책 합의 | 모든 FE·BE 트랙의 판단 기준 |
-| **공통(런타임·보안)** | 세션 쿠키, `adminPre`/`requireAuth`, CSRF·Bearer 예외(운영: [`admin-site/operations.md`](./admin-site/operations.md)) | API 서버·환경 변수 | 비GET을 호출하는 모든 admin FE |
+| **공통(문서·계약)** | PRD §7·§8, [`settings-ui/api-contract.md`](./settings-ui/api-contract.md), [`settings-ui-freeze.md`](./settings-ui-freeze.md) | 제품 정책 합의 | 모든 FE·BE 트랙의 판단 기준 |
+| **공통(런타임·보안)** | 세션 쿠키, `adminPre`/`requireAuth`, CSRF·Bearer 예외(운영: [`settings-ui/operations.md`](./settings-ui/operations.md)) | API 서버·환경 변수 | 비GET을 호출하는 모든 설정 UI FE |
 | **공통 FE** | **T0** 네비·IA, **T1** 오류 메시지 매핑(`error.message`/`code`, 네트워크 분리) | 공통 계약 이해 | **T2~T5**(T0 후 병렬 가능); T1은 T2 전 **완료 권장**(아니면 페이지별 임시 헬퍼 → T1에서 통합) |
 | **FE 화면** | **T2~T5** 각 `page.tsx` | **T0** | 서로 **파일 분리**로 T0 머지 후 **병렬** |
 | **BE(선택)** | **T6** `news-rules` PATCH 후 캐시 무효화 | T4에서 PATCH 사용 경로 확인(재현 시나리오) | **api-contract.md**·PRD §7.3 문구 동기화; FE 계약 필드 변경 없으면 **FE 재작업 불필요** |
@@ -92,10 +92,10 @@ flowchart TB
 
 | 확인 항목 | 필요 층 |
 |-----------|---------|
-| 로그인 후 admin 메뉴 노출 | 공통 런타임 + **T0** |
+| 로그인 후 설정 메뉴 노출 | 공통 런타임 + **T0** |
 | 쓰기(POST/PATCH/PUT/DELETE) 성공/409/403 표시 | 공통 런타임 + **T1** + 해당 **T2~T5** |
 | 규칙 수정 직후 뉴스 반영 일관성 | **T4** + (선택) **T6** |
-| Gate 3 / QA 체크리스트 | 위 완료 + [`admin-site/qa-checklist.md`](./admin-site/qa-checklist.md) |
+| Gate 3 / QA 체크리스트 | 위 완료 + [`settings-ui/qa-checklist.md`](./settings-ui/qa-checklist.md) |
 
 ### 파일·PR 관점 (충돌 방지)
 
@@ -117,11 +117,11 @@ flowchart TB
 | ID | 범위 | 주요 파일·영역 | 의존 | 완료 기준 (요약) |
 |----|------|----------------|------|------------------|
 | **T0** | 네비·IA 고정 | `AdminNav.tsx`, (필요 시) `layout.tsx` | 없음 | Freeze §1: **설정** 메뉴 추가, 문의는 보조 배치 |
-| **T1** | 공통 오류 UX | `api-client` 또는 각 admin 페이지 공통 헬퍼 | T0 선택 | PRD §7.5 — `error.message` / `code` 우선 표시, 네트워크 분리 |
-| **T2** | 종목 | `admin/stocks/page.tsx` | T0 | 요약·폼·표·상태·409/502 안내 |
-| **T3** | 테마 | `admin/themes/page.tsx` | T0 | 동일 패턴 |
-| **T4** | 뉴스 규칙 | `admin/news-rules/page.tsx` | T0 | GLOBAL/STOCK 오류 표시 |
-| **T5** | 설정 | `admin/settings/page.tsx` | T0 | 동일 패턴 |
+| **T1** | 공통 오류 UX | `api-client` 또는 각 설정 페이지 공통 헬퍼 | T0 선택 | PRD §7.5 — `error.message` / `code` 우선 표시, 네트워크 분리 |
+| **T2** | 종목 | `settings/stocks/page.tsx` | T0 | 요약·폼·표·상태·409/502 안내 |
+| **T3** | 테마 | `settings/themes/page.tsx` | T0 | 동일 패턴 |
+| **T4** | 뉴스 규칙 | `settings/news-rules/page.tsx` | T0 | GLOBAL/STOCK 오류 표시 |
+| **T5** | 설정 | `settings/settings/page.tsx` | T0 | 동일 패턴 |
 | **T6** | API(선택) | `news-rules.ts` — PATCH 후 `newsCache.invalidate` | T4와 정합 | 규칙 수정 직후 뉴스 반영 일관성 |
 | **TP** | 테이블 규칙(Q4) | 종목·테마·규칙 목록 화면 | PRD Q4 확정 | `.cursor/rules/30-table-pagination.mdc` 또는 **면제** 문서화 |
 
@@ -149,8 +149,8 @@ flowchart TB
 
 ## DoD (트랙 공통)
 
-- [`admin-site-ui-freeze.md`](./admin-site-ui-freeze.md) 위반 없음(또는 Freeze 개정 반영).
-- [`admin-site/qa-checklist.md`](./admin-site/qa-checklist.md) 해당 항목 통과.
+- [`settings-ui-freeze.md`](./settings-ui-freeze.md) 위반 없음(또는 Freeze 개정 반영).
+- [`settings-ui/qa-checklist.md`](./settings-ui/qa-checklist.md) 해당 항목 통과.
 - PRD §7 주요 코드 경로에 대한 **사용자 메시지** 존재.
 
 ---

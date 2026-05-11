@@ -3,13 +3,13 @@ type: doc
 project: stockMonitoring
 doc_lane: requirements
 updated_at: 2026-05-10
-tags: [admin, api, contract]
-related_prd: ../admin-site-prd.md
+tags: [settings-ui, api, contract]
+related_prd: ../settings-ui-prd.md
 ---
 
-# 관리자 영역 API 계약 요약
+# 설정 UI·관리 API 계약 요약
 
-**SSOT:** Fastify 라우트 구현(`apps/api/src/routes/*.ts`). 본 문서는 [`admin-site-prd.md`](../admin-site-prd.md) §7·§8과 동일 선상의 **업무용 요약**이다.
+**SSOT:** Fastify 라우트 구현(`apps/api/src/routes/*.ts`). 본 문서는 [`settings-ui-prd.md`](../settings-ui-prd.md) §7·§8과 동일 선상의 **업무용 요약**이다.
 
 ## 인증 모델
 
@@ -27,7 +27,7 @@ related_prd: ../admin-site-prd.md
 | 메서드 | 경로 | Pre | 비고 |
 |--------|------|-----|------|
 | GET | `/stocks/search` | requireAuth | 쿼리 `q`, `size`(1~50 클램프); 상류 실패 **502** |
-| GET | `/stocks` | requireAuth + includeInactive 검사 | `includeInactive=1` → 관리 역할 필요 |
+| GET | `/stocks` | requireAuth + includeInactive 검사 | `includeInactive=1` → `OWNER`/`ADMIN` 필요 |
 | POST | `/stocks` | adminPre | **409** `DUPLICATE`, **409** `STOCK_LIMIT` |
 | PATCH | `/stocks/:id` | adminPre | 재활성 시 **409** `STOCK_LIMIT`; **404** |
 | DELETE | `/stocks/:id` | adminPre | 소프트 비활성 **204** |
@@ -56,7 +56,7 @@ related_prd: ../admin-site-prd.md
 | GET | `/settings`, `/settings/:key` | requireAuth | 없으면 **404** |
 | PUT | `/settings/:key` | adminPre | **기존 키만** 수정 **404**; `market_data.provider` 등 시 **reloadMarket** |
 
-## 오류 코드 (관리 UI 매핑용)
+## 오류 코드 (설정 UI 매핑용)
 
 PRD §7.2 표와 동일 계열: `VALIDATION_ERROR`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `DUPLICATE`, `STOCK_LIMIT`, `RATE_LIMIT`, `UPSTREAM_ERROR`, `CSRF_REJECTED`, `CSRF_CONFIG`.
 

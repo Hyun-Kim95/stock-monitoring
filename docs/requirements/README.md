@@ -22,7 +22,7 @@ tags: [docs, vault-sync]
 - admin-board-requirements.md
 - mobile-app-navigation.md
 
-**관리자 사이트(PRD 기준 초기 세트):** PRD [`admin-site-prd.md`](./admin-site-prd.md) · [`admin-site-ui-freeze.md`](./admin-site-ui-freeze.md) · [`admin-site-implementation-plan.md`](./admin-site-implementation-plan.md) · 분기 문서 [`admin-site/README.md`](./admin-site/README.md).
+**설정 UI(PRD 기준 초기 세트):** PRD [`settings-ui-prd.md`](./settings-ui-prd.md) · [`settings-ui-freeze.md`](./settings-ui-freeze.md) · [`settings-ui-implementation-plan.md`](./settings-ui-implementation-plan.md) · 분기 문서 [`settings-ui/README.md`](./settings-ui/README.md).
 
 ## Vault
 

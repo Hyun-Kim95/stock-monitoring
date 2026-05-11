@@ -22,7 +22,7 @@ tags: [docs, vault-sync]
 권장 파일명 예시:
 - feature-checklist.md
 - release-checklist.md
-- admin-table-qa.md
+- admin-table-qa.md — 설정 UI 목록·테이블 QA 시 파일명 변경 가능
 - stage3-entry-checklist.md
 ## Vault
 

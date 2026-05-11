@@ -42,13 +42,13 @@
 
 ---
 
-## D-003 — 관리자·보안 (MVP 운영 최소)
+## D-003 — 설정 UI·보안 (MVP 운영 최소)
 
 | 항목 | 내용 |
 |------|------|
 | 상태 | **locked** (MVP) |
 | 레이어 1 | `ADMIN_API_TOKEN` — 프로덕션에서는 **반드시 설정**, `Authorization: Bearer` |
-| 레이어 2 (권장) | 리버스 프록시에서 관리자 UI 또는 쓰기 API 경로 **IP 허용 목록** 또는 **추가 Basic Auth** |
+| 레이어 2 (권장) | 리버스 프록시에서 설정 UI(`/settings/*`) 또는 쓰기 API 경로 **IP 허용 목록** 또는 **추가 Basic Auth** |
 | 시크릿 저장 | 서버 env / 비밀 저장소; DB `system_settings` 민감값은 응답 **마스킹** (현 구현 유지) |
 | 레이트 리밋 | 비-GET IP당 분당 120회 (`write-rate-limit.ts`) |
 

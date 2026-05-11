@@ -27,7 +27,7 @@ export function writeAdminOnboardingDone(): void {
 }
 
 /**
- * 관리자 영역 첫 방문 자동 투어 + 수동으로 다시 열기.
+ * 설정 UI 영역 첫 방문 자동 투어 + 수동으로 다시 열기.
  * @param enabled 세션·권한이 준비된 뒤에만 자동 오픈(로딩 중에는 false 권장).
  */
 export function useAdminOnboarding(opts?: { enabled?: boolean }) {

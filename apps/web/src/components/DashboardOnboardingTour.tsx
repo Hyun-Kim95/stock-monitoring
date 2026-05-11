@@ -42,7 +42,7 @@ const STEPS: TourStep[] = [
   {
     id: "theme-settings",
     title: "화면·설정",
-    body: "테마(라이트/다크), 관리자 설정 링크가 여기 있습니다.",
+    body: "테마(라이트/다크), 설정 UI 링크가 여기 있습니다.",
     targetSelector: "[data-tour=\"theme-settings\"]",
   },
   {

@@ -189,7 +189,7 @@
   }
 }
 
-/* 대시보드·어드민 레거시 유틸 (CSS 변수 = 위 테마) */
+/* 대시보드·설정 UI 레거시 유틸 (CSS 변수 = 위 테마) */
 @layer components {
   table.data-table {
     @apply w-full border-collapse;

@@ -2,20 +2,26 @@
 type: doc
 project: stockMonitoring
 doc_lane: requirements
-updated_at: 2026-05-10
-tags: [prd, admin, gate1]
+updated_at: 2026-05-11
+tags: [prd, settings-ui, gate1]
 status: draft
 ---
 
-# 관리자 사이트 PRD (초안)
+# 설정 UI PRD (초안)
 
-본 문서는 **국내 주식 모니터링 대시보드** 제품의 운영·콘텐츠 관리용 **관리자 웹** 범위를 정의한다. 구현 전 검토·승인용 초안이며, 확정 시 `status`와 변경 이력을 갱신한다.
+## 문서 용어 (SSOT)
 
-**관련 문서 세트 (계약·운영·QA 분리):** 허브 [`admin-site/README.md`](admin-site/README.md) · [`admin-site/api-contract.md`](admin-site/api-contract.md) · [`admin-site/operations.md`](admin-site/operations.md) · [`admin-site/qa-checklist.md`](admin-site/qa-checklist.md)
+- **설정 UI**: 브라우저에서 **`/settings/*`** 로 제공되는 화면 묶음(종목·테마·뉴스 규칙·런타임 설정·문의).
+- **`adminPre`**, **`ADMIN_API_TOKEN`**, 멤버십 역할 **`OWNER`/`ADMIN`**: API·환경·권한 모델의 **구현 식별자**로 본문에서 변경하지 않는다.
+- **`(admin)` 라우트 그룹**: Next.js 소스 폴더명으로 URL에는 포함되지 않는다.
 
-**디자인:** 이중안 비교 [`docs/design/admin-site-design-comparison.md`](../design/admin-site-design-comparison.md) — **선택 확정: 안 A**(로컬 와이어 + [`artifacts/admin-mockup/`](../design/artifacts/admin-mockup/)), 2026-05-10. 안 B(Stitch)는 참고용. 상세 와이어 [`admin-site-wireframes-option-a.md`](../design/admin-site-wireframes-option-a.md) · Stitch 절차 [`admin-site-stitch-option-b-cli.md`](../design/admin-site-stitch-option-b-cli.md).
+본 문서는 **국내 주식 모니터링 대시보드** 제품의 운영·콘텐츠 구성용 **설정 UI** 범위를 정의한다. 구현 전 검토·승인용 초안이며, 확정 시 `status`와 변경 이력을 갱신한다.
 
-**UI 고정·구현 분할:** [`admin-site-ui-freeze.md`](./admin-site-ui-freeze.md) · [`admin-site-implementation-plan.md`](./admin-site-implementation-plan.md)
+**관련 문서 세트 (계약·운영·QA 분리):** 허브 [`settings-ui/README.md`](settings-ui/README.md) · [`settings-ui/api-contract.md`](settings-ui/api-contract.md) · [`settings-ui/operations.md`](settings-ui/operations.md) · [`settings-ui/qa-checklist.md`](settings-ui/qa-checklist.md)
+
+**디자인:** 이중안 비교 [`docs/design/settings-ui-design-comparison.md`](../design/settings-ui-design-comparison.md) — **선택 확정: 안 A**(로컬 와이어 + [`artifacts/settings-ui-mockup/`](../design/artifacts/settings-ui-mockup/)), 2026-05-10. 안 B(Stitch)는 참고용. 상세 와이어 [`settings-ui-wireframes-option-a.md`](../design/settings-ui-wireframes-option-a.md) · Stitch 절차 [`settings-ui-stitch-option-b-cli.md`](../design/settings-ui-stitch-option-b-cli.md).
+
+**UI 고정·구현 분할:** [`settings-ui-freeze.md`](./settings-ui-freeze.md) · [`settings-ui-implementation-plan.md`](./settings-ui-implementation-plan.md)
 
 ## 0. 정책 정합·누락 보완 (메타)
 
@@ -23,12 +29,12 @@ status: draft
 
 | 구분 | 내용 |
 |------|------|
-| **인증 서술** | README는 `ADMIN_API_TOKEN`·`NEXT_PUBLIC_ADMIN_TOKEN` 정렬을 강조하나, 웹 `api-client`는 `Authorization` 헤더를 붙이지 않고 **쿠키 세션(`credentials: "include"`)** 만 사용한다. 관리 UI의 주 경로는 **로그인 세션 + 멤버십 역할 `OWNER`/`ADMIN`** 이다. |
+| **인증 서술** | README는 `ADMIN_API_TOKEN`·`NEXT_PUBLIC_ADMIN_TOKEN` 정렬을 강조하나, 웹 `api-client`는 `Authorization` 헤더를 붙이지 않고 **쿠키 세션(`credentials: "include"`)** 만 사용한다. 설정 UI의 주 경로는 **로그인 세션 + 멤버십 역할 `OWNER`/`ADMIN`** 이다. |
 | **adminPre 실제 동작** | `ADMIN_API_TOKEN`이 설정된 경우 `Bearer` 일치 시 통과; **아니면** 세션 필수 + 역할 `OWNER`/`ADMIN`. 두 경로는 OR이다. |
-| **Bearer 단독 한계** | 쓰기 API 일부는 핸들러에서 `getRequestAuth`로 **테넌트(`tenantId`)** 가 필요하다. Bearer만으로 세션이 없으면 **테넌트 컨텍스트가 없어** 기대와 다르게 실패할 수 있다. PRD·운영 가이드에서는 **브라우저 관리 작업 = 세션 + 관리 역할**을 기본으로 둔다. |
-| **`ADMIN_API_TOKEN` 미설정 시 Bearer** | 이 경우 `bootstrap`의 `adminPre`는 **토큰 분기 자체가 없어** 클라이언트가 보낸 `Authorization: Bearer …`는 **관리 권한 판별에 사용되지 않는다**(세션+OWNER/ADMIN만 유효). |
-| **테이블 UX 규칙** | `.cursor/rules/30-table-pagination.mdc`(필터 상단·15건·하단 페이지네이션·검색 옆 초기화)와 달리, 현재 관리자 종목 등은 **전체 목록 스크롤** 중심이다. §4.1에서 **목표 규칙 vs 현재 구현 갭**을 명시한다. |
-| **문의 API** | `POST /inquiries`는 로그인 사용자 **작성**만 존재한다. 관리자 **목록·처리** API는 없음 → §4.6은 “연동 시”가 아니라 **미구현·로드맵**으로 구분한다. |
+| **Bearer 단독 한계** | 쓰기 API 일부는 핸들러에서 `getRequestAuth`로 **테넌트(`tenantId`)** 가 필요하다. Bearer만으로 세션이 없으면 **테넌트 컨텍스트가 없어** 기대와 다르게 실패할 수 있다. PRD·운영 가이드에서는 **브라우저 설정 화면에서의 작업 = 세션 + `OWNER`/`ADMIN` 역할**을 기본으로 둔다. |
+| **`ADMIN_API_TOKEN` 미설정 시 Bearer** | 이 경우 `bootstrap`의 `adminPre`는 **토큰 분기 자체가 없어** 클라이언트가 보낸 `Authorization: Bearer …`는 **설정 UI 쓰기 권한(adminPre) 판별에 사용되지 않는다**(세션+OWNER/ADMIN만 유효). |
+| **테이블 UX 규칙** | `.cursor/rules/30-table-pagination.mdc`(필터 상단·15건·하단 페이지네이션·검색 옆 초기화)와 달리, 현재 설정 UI의 종목 등은 **전체 목록 스크롤** 중심이다. §4.1에서 **목표 규칙 vs 현재 구현 갭**을 명시한다. |
+| **문의 API** | `POST /inquiries`는 로그인 사용자 **작성**만 존재한다. **OWNER/ADMIN 전용** 목록·처리 API는 없음 → §4.6은 “연동 시”가 아니라 **미구현·로드맵**으로 구분한다. |
 | **Bearer만 통과한 쓰기** | `adminPre`가 유효 Bearer로 조기 통과하면, 다수 핸들러는 여전히 `getRequestAuth(request)!`로 **테넌트·유저**를 읽는다. 세션이 없으면 **런타임 예외(사실상 500)** 가능성이 있다 — §7.4 참고. |
 
 ## 1. 제품 목표
@@ -46,7 +52,7 @@ status: draft
 | **운영자** | 종목/테마/뉴스 규칙/일부 설정을 읽고 수정한다. |
 | **슈퍼관리자 (선택)** | 운영자 권한 + 민감 설정·계정(도입 시) 관리. |
 
-1차 제품은 **관리 역할(OWNER/ADMIN)이 있는 세션** 또는 (자동화·스크립트용) **환경에 설정된 경우 Bearer 토큰** 조합으로 설명한다. README의 토큰 정렬만으로 “브라우저가 관리 API를 연다”고 단정하지 않는다. RBAC 세분화·감사 로그는 **후속 단계**로 명시한다.
+1차 제품은 **관리 역할(OWNER/ADMIN)이 있는 세션** 또는 (자동화·스크립트용) **환경에 설정된 경우 Bearer 토큰** 조합으로 설명한다. README의 토큰 정렬만으로 “브라우저가 보호된 API를 연다”고 단정하지 않는다. RBAC 세분화·감사 로그는 **후속 단계**로 명시한다.
 
 ## 3. 현재 상태 (As-Is)
 
@@ -54,51 +60,51 @@ status: draft
 
 | 화면 (웹) | 대표 목적 |
 |-----------|-----------|
-| `/admin/stocks` | 종목 CRUD, 비활성, 테마 연결, 검색 별칭, 업종, 활성 상한(`stocks.max_active`) 연동 |
-| `/admin/themes` | 테마 CRUD, 소속 종목 다중 선택 |
-| `/admin/news-rules` | 전역/종목 스코프 뉴스 규칙(포함·제외 키워드, 우선순위, 활성) |
-| `/admin/settings` | 키-값 런타임 설정 조회·갱신 |
+| `/settings/stocks` | 종목 CRUD, 비활성, 테마 연결, 검색 별칭, 업종, 활성 상한(`stocks.max_active`) 연동 |
+| `/settings/themes` | 테마 CRUD, 소속 종목 다중 선택 |
+| `/settings/news-rules` | 전역/종목 스코프 뉴스 규칙(포함·제외 키워드, 우선순위, 활성) |
+| `/settings/settings` | 키-값 런타임 설정 조회·갱신 |
 
 **인증 (SSOT: API `adminPre` 동작):**
 
-- **관리 쓰기**(종목/테마/뉴스 규칙/설정 변경 등): 다음 **어느 한쪽**이면 통과한다.  
+- **보호된 쓰기(adminPre)**(종목/테마/뉴스 규칙/설정 변경 등): 다음 **어느 한쪽**이면 통과한다.  
   1. `ADMIN_API_TOKEN`이 설정되어 있고 요청 `Authorization: Bearer <동일 값>`  
   2. 세션 쿠키가 있고 멤버십 역할이 **`OWNER` 또는 `ADMIN`**
 - **관련 읽기:** `GET /settings`, `GET /news-rules`, `GET /themes` 등은 일반 **`requireAuthPre`(로그인)** 로 조회 가능.  
   **`GET /stocks?includeInactive=1`** 는 비활성 종목까지 보려면 **OWNER/ADMIN** 이어야 한다(그 외 역할·예: `MEMBER`는 403).  
-  **웹 UI:** `apps/web`의 `(admin)/layout`은 `MEMBER`를 **홈으로 리다이렉트**하므로, 권한 없는 사용자는 관리 화면 자체에 머무르지 않는다. API를 직접 호출하면 위 403이 적용된다.
+  **웹 UI:** `apps/web`의 `(admin)/layout`은 `MEMBER`를 **홈으로 리다이렉트**하므로, 권한 없는 사용자는 설정 화면 자체에 머무르지 않는다. API를 직접 호출하면 위 403이 적용된다.
 - **로컬:** `ADMIN_API_TOKEN` 미설정 시 adminPre는 **세션+OWNER/ADMIN만** 검사한다 — **운영·스테이징에서는 토큰 또는 세션 기반 접근 제어 중 최소 하나로 무단 변경을 막을 것**을 요구한다.
-- **문서·구현 갭:** `NEXT_PUBLIC_ADMIN_TOKEN`은 README에서 안내하지만, 공용 `api-client`가 이를 자동으로 헤더에 넣지는 않는다. 대시보드 등에서 쓰는 안내 문구와 혼동하지 않도록 운영 문서에서 **“브라우저 관리 화면 = 로그인 + 관리 역할”** 을 기본으로 명시한다.
+- **문서·구현 갭:** `NEXT_PUBLIC_ADMIN_TOKEN`은 README에서 안내하지만, 공용 `api-client`가 이를 자동으로 헤더에 넣지는 않는다. 대시보드 등에서 쓰는 안내 문구와 혼동하지 않도록 운영 문서에서 **“브라우저 설정 화면 = 로그인 + `OWNER`/`ADMIN` 역할”** 을 기본으로 명시한다.
 
 ## 4. 목표 상태 (To-Be) — 기능 요구사항
 
 ### 4.1 정보 구조 (IA)
 
-- 관리자 영역 상단에 **구역 간 네비게이션**(종목 · 테마 · 뉴스 규칙 · 설정)을 유지하거나 개선한다.
+- 설정 UI 상단에 **구역 간 네비게이션**(종목 · 테마 · 뉴스 규칙 · 설정)을 유지하거나 개선한다.
 - 사용자 대시보드와 동일하게 **라이트/다크 모드** 및 **주요 상태 UI**(기본·로딩·빈·오류·권한)를 만족한다.
-- **테이블 UX (규칙 vs 현재 구현):** 레포 규칙(`.cursor/rules/30-table-pagination.mdc`)은 목록 화면에 **상단 필터·페이지당 15건·하단 중앙 페이지네이션·검색 시 초기화 버튼** 등을 요구한다. **현재 관리자 종목/테마/뉴스 규칙 UI는 전체 목록 표시·스크롤 중심**으로 해당 규칙과 완전히 일치하지 않는다.  
-  - **목표:** 운영 규모가 커지기 전에 관리자 목록에도 동일 규칙을 맞추거나, **테넌트당 상한 N건 이하** 등 전제로 예외를 승인한다.  
+- **테이블 UX (규칙 vs 현재 구현):** 레포 규칙(`.cursor/rules/30-table-pagination.mdc`)은 목록 화면에 **상단 필터·페이지당 15건·하단 중앙 페이지네이션·검색 시 초기화 버튼** 등을 요구한다. **현재 설정 UI의 종목/테마/뉴스 규칙 화면은 전체 목록 표시·스크롤 중심**으로 해당 규칙과 완전히 일치하지 않는다.  
+  - **목표:** 운영 규모가 커지기 전에 설정 UI 목록에도 동일 규칙을 맞추거나, **테넌트당 상한 N건 이하** 등 전제로 예외를 승인한다.  
   - **승인 전 갭:** MVP 완료 정의에 “목록 페이지네이션 적용 여부” 또는 “건수 상한 내 면제”를 명시하지 않으면 Gate 3에서 해석 충돌이 난다.
 
-### 4.2 종목 관리 (`/admin/stocks`)
+### 4.2 종목 관리 (`/settings/stocks`)
 
-- **필수:** 종목 목록 조회(비활성 포함은 **관리 역할** 필요 — API와 동일), 외부 검색 보조(`GET /stocks/search`, `size` 등 쿼리는 구현 SSOT), 신규 등록·수정, 활성/비활성 전환, 검색 별칭·시장·업종 필드 유지.
-- **테마 연결:** 신규 등록 시 폼에서 테마명·기존 테마 선택으로 연결 가능. **기존 종목 수정 모드에서는 테마 매핑 변경이 테마 관리 화면(`PUT /themes/:id/stocks` 등)으로 분리**될 수 있다 — PRD의 “테마 다중 연결”은 **신규 + 테마 관리**의 조합으로 충족한다고 본다.
+- **필수:** 종목 목록 조회(비활성 포함은 **`OWNER`/`ADMIN` 역할** 필요 — API와 동일), 외부 검색 보조(`GET /stocks/search`, `size` 등 쿼리는 구현 SSOT), 신규 등록·수정, 활성/비활성 전환, 검색 별칭·시장·업종 필드 유지.
+- **테마 연결:** 신규 등록 시 폼에서 테마명·기존 테마 선택으로 연결 가능. **기존 종목 수정 모드에서는 테마 매핑 변경이 테마 설정 화면(`PUT /themes/:id/stocks` 등)으로 분리**될 수 있다 — PRD의 “테마 다중 연결”은 **신규 + 테마 설정**의 조합으로 충족한다고 본다.
 - **필수:** 활성 종목 수가 설정 상한을 넘지 않도록 서버·클라이언트 정책과 오류 메시지가 일치한다(409 `STOCK_LIMIT` 등).
 - **삭제 정책:** API `DELETE /stocks/:id`는 구현상 **`isActive: false` 소프트 비활성**이다(UI “비활성” 버튼과 대응). 물리 삭제는 하지 않는다.
 - **권장:** 대량 작업·가져오기는 후속; 1차는 단건·소량 편집 중심.
 
-### 4.3 테마 관리 (`/admin/themes`)
+### 4.3 테마 관리 (`/settings/themes`)
 
 - **필수:** 테마 CRUD, 설명 필드, 소속 종목 멀티 선택(필터·검색으로 선택 UX 보조).
 - **필수:** 저장 시 서버 오류·검증 메시지를 사용자에게 전달.
 
-### 4.4 뉴스 규칙 (`/admin/news-rules`)
+### 4.4 뉴스 규칙 (`/settings/news-rules`)
 
 - **필수:** 전역(GLOBAL) vs 종목(STOCK) 스코프, 포함/제외 키워드, 우선순위, 활성 여부, 규칙 CRUD.
 - **필수:** 종목 스코프 시 종목 선택이 가능하고, 목록에서 스코프가 식별된다.
 
-### 4.5 런타임 설정 (`/admin/settings`)
+### 4.5 런타임 설정 (`/settings/settings`)
 
 - **필수:** 설정 키 목록 조회, 키 선택 후 값 갱신, 갱신 시각 표시.
 - **주의:** 임의 키 생성보다 **문서화된 키**(예: `stocks.max_active`, `market_data.provider`) 중심 운영을 권장; 민감 값은 마스킹·재입력 정책을 후속 보강할 수 있다.
@@ -107,7 +113,7 @@ status: draft
 
 다음은 필요 시 별도 스펙으로 쪼갠다.
 
-- **문의 관리:** 현재는 로그인 사용자의 **문의 작성(`POST /inquiries`)** 만 존재한다. 관리자용 **목록·상태·답변 API 및 화면**은 미구현 → 도입 시 별도 계약·권한(admin 전용) 정의가 필요하다.
+- **문의 관리:** 현재는 로그인 사용자의 **문의 작성(`POST /inquiries`)** 만 존재한다. **OWNER/ADMIN 전용** 목록·상태·답변 API 및 화면은 미구현 → 도입 시 별도 계약·권한 정의가 필요하다.
 - **감사 로그:** 설정/종목/규칙 변경 이력(누가·언제·이전값→새값).
 - **RBAC:** 역할별 메뉴·기능 제한(현재는 `OWNER`/`ADMIN` 이분법에 가깝다).
 - **연동 헬스:** KIS·뉴스·WS 등 마지막 성공/실패 요약(운영 대시보드).
@@ -122,30 +128,30 @@ status: draft
 
 | 구분 | 요구 |
 |------|------|
-| **보안** | 운영 배포에서 관리 API 무인증·무권한 변경 금지; HTTPS, 시크릿 저장소 권장. **테넌트 격리:** 관리 API는 요청자 세션의 `tenantId` 범위만 변경 가능해야 한다(타 테넌트 종목/설정 접근 불가). |
+| **보안** | 운영 배포에서 설정·관리 API 무인증·무권한 변경 금지; HTTPS, 시크릿 저장소 권장. **테넌트 격리:** 해당 API는 요청자 세션의 `tenantId` 범위만 변경 가능해야 한다(타 테넌트 종목/설정 접근 불가). |
 | **CSRF·출처** | API는 CORS·Cookie 설정 및 출처 관련 보호(`registerCsrfOriginProtection`)를 환경에 맞게 활성화한다 — 허용 출처 집합은 구현상 **`WEB_PUBLIC_BASE_URL` + `CORS_ORIGIN`(쉼표 구분)** 로 수집된다. 미설정 시 상태 변경 요청이 **503 `CSRF_CONFIG`** 로 막힐 수 있다(§7). |
-| **쓰기 속도** | 전역 쓰기 레이트 리밋(예: 분당 요청 상한)이 적용될 수 있다 — 관리 UI는 429·오류 본문을 사용자에게 전달할 수 있어야 한다. |
+| **쓰기 속도** | 전역 쓰기 레이트 리밋(예: 분당 요청 상한)이 적용될 수 있다 — 설정 UI는 429·오류 본문을 사용자에게 전달할 수 있어야 한다. |
 | **접근성** | 폼 레이블, 버튼 목적, 오류 메시지가 스크린리더·키보드로 동작 가능한 수준. |
-| **반응형** | 관리 레이아웃은 기존 `980px` 기준 정렬(`mobile-dashboard-responsive.md`와 일치). |
+| **반응형** | 설정 UI 레이아웃은 기존 `980px` 기준 정렬(`mobile-dashboard-responsive.md`와 일치). |
 | **다크 모드** | 라이트/다크 모두 대비·가독성 유지(프로젝트 다크모드 규칙). |
 | **관측 가능성** | API 오류 시 사용자에게 원인 구분(401·403·4xx·5xx, 본문 메시지) 가능하도록 유지·개선. 상세 코드·엣지케이스는 **§7** 참고. |
 
 ## 7. 엣지케이스·오류 처리 기준
 
-관리자 UI·API는 **예측 가능한 실패**를 사용자에게 전달하고, 운영·디버깅에 필요한 **`error.code`** 를 보존한다.
+설정 UI·관리 API는 **예측 가능한 실패**를 사용자에게 전달하고, 운영·디버깅에 필요한 **`error.code`** 를 보존한다.
 
 ### 7.1 오류 페이로드 표준
 
 - JSON 바디는 가능하면 `{ error: { code: string, message: string, details?: unknown } }` 형태를 따른다.
-- **Zod 검증 실패:** HTTP **400**, `code: VALIDATION_ERROR`, `message` 고정 문구 + `details`(필드별 오류). 관리 UI는 상세 필드를 요약해 노출하거나 “입력값을 확인하세요” 수준으로 안내할 수 있다.
+- **Zod 검증 실패:** HTTP **400**, `code: VALIDATION_ERROR`, `message` 고정 문구 + `details`(필드별 오류). 설정 UI는 상세 필드를 요약해 노출하거나 “입력값을 확인하세요” 수준으로 안내할 수 있다.
 
-### 7.2 HTTP 상태 ↔ 관리 UI 기대 동작
+### 7.2 HTTP 상태 ↔ 설정 UI 기대 동작
 
-| 코드 | 대표 원인 | 관리 UI 기대 |
+| 코드 | 대표 원인 | 설정 UI 기대 |
 |------|-----------|----------------|
 | **400** | 스코프·필드 검증 실패(`news-rules`의 GLOBAL/STOCK·`stockId` 불일치 등), Zod | 해당 필드·폼 상단에 메시지; 불필요한 재시도 방지 |
 | **401** | 미로그인(`requireAuthPre`); `ADMIN_API_TOKEN` 설정 시 잘못된 Bearer·무세션 조합은 구현상 **401**로 떨어질 수 있음(메시지는 “로그인 필요”에 가깝다) | 로그인 유도·토큰 재확인 안내; §7.4 |
-| **403** | 역할 부족(`includeInactive`, **`adminPre`에서 MEMBER 등 비관리 역할이 관리 쓰기 시도**), **CSRF 출처 거부**(`CSRF_REJECTED`) | “권한 없음” vs “허용되지 않은 출처” 등 메시지 구분(`error.code` 기준). 웹 관리 UI는 MEMBER를 선제 리다이렉트하므로 후자 위주로 노출될 수 있음 |
+| **403** | 역할 부족(`includeInactive`, **`adminPre`에서 MEMBER 등 비관리 역할이 보호된 쓰기 시도**), **CSRF 출처 거부**(`CSRF_REJECTED`) | “권한 없음” vs “허용되지 않은 출처” 등 메시지 구분(`error.code` 기준). 웹 설정 UI는 MEMBER를 선제 리다이렉트하므로 후자 위주로 노출될 수 있음 |
 | **404** | 테넌트에 없는 리소스, 존재하지 않는 `settings/:key` 수정 시도 | 목록 새로고침 후 재시도 안내; 설정은 “등록된 키만 수정” 안내 |
 | **409** | 종목코드/테마명 중복(`DUPLICATE`), 활성 상한(`STOCK_LIMIT`) | 사용자 행동 제안(다른 코드·테마명, 비활성 정리·상한 조정) |
 | **429** | IP 기준 쓰기 레이트 리밋 초과(`RATE_LIMIT`) | 잠시 후 재시도; 연타·일괄 저장 UX 자제 |
@@ -179,11 +185,11 @@ status: draft
 ### 7.4 인증·보안 경계
 
 - **`ADMIN_API_TOKEN`이 설정된 경우** (`bootstrap` 내 인라인 `adminPre` — `lib/admin-pre-handler.ts`의 팩토리와는 별개로 동작이 SSOT)  
-  - 브라우저 기본 요청(Origin 검사 통과)은 **세션만으로도** 관리 쓰기 가능(`Bearer` 불필요).  
+  - 브라우저 기본 요청(Origin 검사 통과)은 **세션만으로도** 보호된 쓰기 가능(`Bearer` 불필요).  
   - **`Bearer`가 틀리고 세션도 없으면** `adminPre`는 **401**(메시지는 구현상 “로그인이 필요합니다.”에 가깝다 — 토큰 오류와 구분이 어려울 수 있음).
-- **`ADMIN_API_TOKEN`이 비어 있는 경우:** 위 토큰 분기가 없으므로 **세션+OWNER/ADMIN** 이 아니면 관리 쓰기 불가(임의 Bearer는 무시, §0 표 참고).
+- **`ADMIN_API_TOKEN`이 비어 있는 경우:** 위 토큰 분기가 없으므로 **세션+OWNER/ADMIN** 이 아니면 보호된 쓰기 불가(임의 Bearer는 무시, §0 표 참고).
 - **CSRF 완화 훅:** 전역 `preHandler`로 등록되며, 동일 요청에서 **쓰기 레이트 리밋보다 먼저** 실행된다(등록 순서: CSRF → 레이트 리밋 → 라우트 `adminPre`). 비안전 메서드는 허용 출처 검사. **`Authorization: Bearer <ADMIN_API_TOKEN>` 일치 시 검사 생략**(자동화용; 토큰이 비어 있으면 이 예외도 적용되지 않음).
-- **Bearer 단독 호출:** §0·§7.2와 같이, 세션 없이 Bearer만 통과하면 **테넌트 의존 핸들러에서 실패**할 수 있다 — 자동화는 **세션 기반 쿠키** 또는 향후 **테넌트 명시형 관리 API** 등 별도 합의가 필요하다.
+- **Bearer 단독 호출:** §0·§7.2와 같이, 세션 없이 Bearer만 통과하면 **테넌트 의존 핸들러에서 실패**할 수 있다 — 자동화는 **세션 기반 쿠키** 또는 향후 **테넌트 명시형 설정·관리 API** 등 별도 합의가 필요하다.
 
 ### 7.5 클라이언트·네트워크
 
@@ -203,7 +209,7 @@ status: draft
 |------|------|-----------|
 | 읽기(로그인) | `GET /themes`, `GET /news-rules`, `GET /settings`, `GET /settings/:key` | `requireAuthPre` |
 | 읽기(조건부) | `GET /stocks`, `GET /stocks/search`, … | `requireAuthPre`; `includeInactive=1` 시 **OWNER/ADMIN** |
-| 쓰기·관리 | `POST|PATCH|DELETE /stocks…`, 테마·뉴스 규칙·설정 변경 | `adminPre`(Bearer **또는** 세션+OWNER/ADMIN). 쓰기 처리 중 테넌트는 **세션 기반**이 일반적이다. |
+| 쓰기·관리(adminPre) | `POST|PATCH|DELETE /stocks…`, 테마·뉴스 규칙·설정 변경 | `adminPre`(Bearer **또는** 세션+OWNER/ADMIN). 쓰기 처리 중 테넌트는 **세션 기반**이 일반적이다. |
 
 - 종목: `POST /stocks`, `PATCH /stocks/:id`, `DELETE /stocks/:id`(비활성/삭제 의미는 코드 SSOT).
 - 테마: `POST/PATCH/DELETE /themes`, `PUT /themes/:id/stocks`.
@@ -217,17 +223,17 @@ status: draft
 - **테넌트:** 모든 종목·테마·규칙·(테넌트 스코프) 설정 변경은 **해당 사용자 세션의 테넌트**에만 적용된다.
 - **활성 종목 상한:** `stocks.max_active`와 서버 검증이 단일 기준이다(409 `STOCK_LIMIT`).
 - **뉴스 규칙 충돌:** 우선순위 필드로 해석; 동순위 동작이 필요하면 별도 합의 후 문서화.
-- **로컬 개발:** `ADMIN_API_TOKEN` 미설정 시 admin 쪽 검사가 완화될 수 있으나, **스테이징/프로덕션에서는 무단 변경 방지**를 요구한다.
-- **일반 사용자 vs 관리자:** 동일 로그인이라도 역할이 `OWNER`/`ADMIN`이 아니면 `includeInactive`·관리 쓰기가 제한된다 — UI는 403을 **권한 없음**으로 표현한다.
+- **로컬 개발:** `ADMIN_API_TOKEN` 미설정 시 설정 UI·`adminPre` 쪽 검사가 완화될 수 있으나, **스테이징/프로덕션에서는 무단 변경 방지**를 요구한다.
+- **일반 사용자 vs 설정 권한:** 동일 로그인이라도 역할이 `OWNER`/`ADMIN`이 아니면 `includeInactive`·보호된 쓰기가 제한된다 — UI는 403을 **권한 없음**으로 표현한다.
 
 ## 10. 미확정 항목 (승인 전 결정 권장)
 
 | ID | 질문 | 비고 |
 |----|------|------|
 | Q1 | RBAC·감사 로그를 MVP에 포함할지, Phase 2로 미룰지 | 보안 감사 요구에 따라 달라짐 |
-| Q2 | 브라우저 관리 UI는 세션+`OWNER`/`ADMIN`을 표준으로 할지; CI·스크립트만 Bearer로 둘지 | Bearer 단독 시 테넌트 컨텍스트 필요 API와의 정합 |
+| Q2 | 브라우저 설정 UI는 세션+`OWNER`/`ADMIN`을 표준으로 할지; CI·스크립트만 Bearer로 둘지 | Bearer 단독 시 테넌트 컨텍스트 필요 API와의 정합 |
 | Q3 | 설정 키 일부를 UI에서 “프리셋”으로만 노출할지(자유 입력 제한) | 오설정 방지 |
-| Q4 | 관리자 목록에 테이블 규칙(15건·페이지네이션)을 언제까지 맞출지, 상한 N건 예외를 둘지 | §4.1 갭 해소 |
+| Q4 | 설정 UI 목록에 테이블 규칙(15건·페이지네이션)을 언제까지 맞출지, 상한 N건 예외를 둘지 | §4.1 갭 해소 |
 
 ## 11. 출시 범위 제안 (단계)
 
@@ -254,8 +260,10 @@ status: draft
 | 2026-05-10 | 0.2 | 정책 충돌·누락 보완: 실제 `adminPre`/세션·역할, 테이블 UX 갭, API 읽기·쓰기·테넌트, 문의 API 범위, 비기능(CSRF·레이트리밋), MVP와 §4.1 정렬(Q4) |
 | 2026-05-10 | 0.3 | 엣지케이스·오류 처리 점검: §7 신설(페이로드 표준, HTTP 매핑, 기능별·인증·네트워크·동시성), §8~12 재번호, MVP에 §7 반영, §0 Bearer-무세션 위험 명시 |
 | 2026-05-10 | 0.4 | 코드 재검증: `ADMIN_API_TOKEN` 미설정 시 Bearer 무시, `(admin)` 레이아웃 MEMBER 리다이렉트, CSRF 출처(`WEB_PUBLIC_BASE_URL`+`CORS_ORIGIN`), 훅 순서, 뉴스 규칙 PATCH 캐시 무효화 갭, `adminPre` 구현 위치 명시 |
-| 2026-05-10 | 0.5 | 초기 문서 세트: `admin-site/`에 README·api-contract·operations·qa-checklist 추가, requirements README 연결 |
-| 2026-05-10 | 0.6 | 문서 세트 재점검: PRD 상단 세트 링크 확장, admin-site README에 절 매핑·동기화 체크리스트, api-contract 전역 제한·GET 테마 문구 정확화, operations 오타(PRDM)·429 수치·`NEXT_PUBLIC_API_URL`·토큰 구분, qa CSRF/429/내비, requirements README 서식 |
-| 2026-05-10 | 0.7 | 디자인 Gate: 안 A 로컬 와이어·안 B Stitch CLI 문서·비교표 추가, design README·stitch-sop CLI 절·admin-site README 연결 |
+| 2026-05-10 | 0.5 | 초기 문서 세트: `settings-ui/`에 README·api-contract·operations·qa-checklist 추가, requirements README 연결 |
+| 2026-05-10 | 0.6 | 문서 세트 재점검: PRD 상단 세트 링크 확장, settings-ui README에 절 매핑·동기화 체크리스트, api-contract 전역 제한·GET 테마 문구 정확화, operations 오타(PRDM)·429 수치·`NEXT_PUBLIC_API_URL`·토큰 구분, qa CSRF/429/내비, requirements README 서식 |
+| 2026-05-10 | 0.7 | 디자인 Gate: 안 A 로컬 와이어·안 B Stitch CLI 문서·비교표 추가, design README·stitch-sop CLI 절·settings-ui README 연결 |
 | 2026-05-10 | 0.8 | 디자인 **안 A 확정** 반영(비교표·PRD 상단 디자인 문구) |
 | 2026-05-10 | 0.9 | **UI Freeze** 문서·**구현 계획**(트랙 T0~TP·병렬·Gate 2) 추가 및 PRD 링크 |
+| 2026-05-11 | 0.10 | 제품 용어: 관리자/관리 UI → **설정 UI**, `/settings/*`·용어 SSOT 절 추가; `tags`에 `settings-ui` 반영 |
+| 2026-05-11 | 0.11 | 요구·디자인·목업·Stitch 스크립트의 **파일·폴더명**을 `settings-ui*`로 통일; `npm run stitch:settings-ui` 사용(루트 `package.json`의 `stitch:admin`은 동일 동작 별칭) |

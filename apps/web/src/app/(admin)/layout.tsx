@@ -46,7 +46,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               className="btn btn-secondary"
               style={{ fontSize: 11, padding: "4px 10px", flexShrink: 0 }}
               data-tour="admin-help-replay"
-              aria-label="관리자 화면 설명 다시 보기"
+              aria-label="설정 화면 설명 다시 보기"
               onClick={openTour}
             >
               사용법

@@ -8,7 +8,7 @@
 
 ### Phase 1 — 레포·인프라
 - [x] npm **workspaces** 모노레포 (`apps/*`, `packages/*`)
-- [x] `apps/web` — Next.js 15 App Router, 대시보드 + 관리자 라우트
+- [x] `apps/web` — Next.js 15 App Router, 대시보드 + 설정 UI 라우트(`/settings/*`)
 - [x] `apps/api` — Fastify + CORS + `@fastify/websocket`, `bootstrap.ts` 분리, `dotenv`로 루트 `.env` 로드
 - [x] `packages/shared` — Zod 시세 스냅샷·WS 메시지·API 입력 스키마
 - [x] `packages/db` — Prisma 스키마( PRD 모델 ) + 시드 스크립트 + 초기 마이그레이션 SQL
@@ -22,7 +22,7 @@
 
 ### Phase 3 — REST API
 - [x] `GET /health`
-- [x] 종목: `GET /stocks`, `GET /stocks/:id`, `POST/PATCH/DELETE /stocks` (관리자)
+- [x] 종목: `GET /stocks`, `GET /stocks/:id`, `POST/PATCH/DELETE /stocks` (adminPre·`OWNER`/`ADMIN`)
 - [x] 테마: `GET /themes`, CRUD, `PUT /themes/:id/stocks` 매핑
 - [x] 뉴스 규칙: `GET /news-rules`, CRUD
 - [x] 설정: `GET /settings`, `GET /settings/:key`, `PUT /settings/:key` (값 마스킹)
@@ -46,10 +46,10 @@
 - [x] 종목 선택 시 뉴스 목록, 테마 표시·테마 필터
 - [x] WS 재연결(클라이언트 백오프)
 
-### Phase 7 — 관리자 UI
-- [x] `/admin/stocks`, `/admin/themes`, `/admin/news-rules`, `/admin/settings`
+### Phase 7 — 설정 UI
+- [x] `/settings/stocks`, `/settings/themes`, `/settings/news-rules`, `/settings/settings`, `/settings/inquiries`
 - [x] Bearer: `ADMIN_API_TOKEN` 설정 시 필요, 미설정 시 로컬에서 생략
-- [x] 관리자 Bearer: 루트 `.env`의 `NEXT_PUBLIC_ADMIN_TOKEN` (Next `next.config`에서 루트 env 로드)
+- [x] Bearer 안내용: 루트 `.env`의 `NEXT_PUBLIC_ADMIN_TOKEN` (Next `next.config`에서 루트 env 로드)
 
 ### Phase 8~9
 - [x] 단위 테스트: shared Zod, 뉴스 처리, 재연결 지연
@@ -79,6 +79,6 @@
 
 | 구분 | 상태 |
 |------|------|
-| 모노레포·스키마·REST·WS·대시보드·어드민 | 구현됨 (목 시세/목 뉴스) |
+| 모노레포·스키마·REST·WS·대시보드·설정 UI | 구현됨 (목 시세/목 뉴스) |
 | 뉴스 규칙·TTL 캐시·쓰기 rate limit·bootstrap·테스트·CI | 추가됨 |
 | 실제 시세·뉴스 API·REST 통합 테스트·E2E·운영 로그 | 미구현 |

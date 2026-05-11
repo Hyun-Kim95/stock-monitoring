@@ -219,7 +219,7 @@ export default function AdminStocksPage() {
           {editingId ? (
             <p style={{ margin: "0 0 12px", fontSize: 12, color: "var(--muted-foreground)" }}>
               종목명을 바꿔 저장하면 이전 공식명이 검색 별칭에 자동으로 붙습니다(중복 제외). 뉴스 검색·키워드 규칙 점검은{" "}
-              <Link href="/admin/news-rules">뉴스 규칙</Link>을 참고하세요.
+              <Link href="/settings/news-rules">뉴스 규칙</Link>을 참고하세요.
             </p>
           ) : null}
           <div className="form-row">
@@ -322,7 +322,7 @@ export default function AdminStocksPage() {
             <label>기존 테마 선택</label>
             {editingId ? (
               <p style={{ margin: 0, fontSize: 12, color: "var(--muted-foreground)" }}>
-                테마 연결은 <Link href="/admin/themes">테마 관리</Link>에서 변경할 수 있습니다.
+                테마 연결은 <Link href="/settings/themes">테마 관리</Link>에서 변경할 수 있습니다.
               </p>
             ) : (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>

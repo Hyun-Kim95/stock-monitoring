@@ -3,8 +3,8 @@ type: doc
 project: stockMonitoring
 doc_lane: design
 updated_at: 2026-05-10
-tags: [admin, stitch, cli, option-b]
-related_prd: ../requirements/admin-site-prd.md
+tags: [settings-ui, stitch, cli, option-b]
+related_prd: ../requirements/settings-ui-prd.md
 ---
 
 # 안 B — Stitch 기반 디자인 (CLI 작업)
@@ -23,7 +23,7 @@ related_prd: ../requirements/admin-site-prd.md
 
 | 단계 | Stitch SOP (개념) | CLI에서 할 일 |
 |------|-------------------|----------------|
-| 0 | 프로젝트 확인/생성 | CLI의 `project create` / `project list` 등으로 **관리자 전용 프로젝트** 생성 |
+| 0 | 프로젝트 확인/생성 | CLI의 `project create` / `project list` 등으로 **설정 UI 전용 Stitch 프로젝트** 생성 |
 | 1 | 디자인 시스템 | `design-system create` 또는 동등 명령으로 **라이트·다크**, 폰트, 라운드, 브랜드 컬러 고정 |
 | 2 | 화면 생성 | **프롬프트**(§4)로 화면별 생성 — `MOBILE` / `DESKTOP` 각각 또는 반응형 한 번에 |
 | 3 | 변형·수정 | `variants` / `edit` 계열로 대안 2~3개 탐색 |
@@ -31,10 +31,10 @@ related_prd: ../requirements/admin-site-prd.md
 
 ## 3. 반드시 넣을 프롬프트 공통 블록
 
-[`stitch-sop.md`](./stitch-sop.md) 템플릿에 다음을 **관리자 도메인**으로 채운다.
+[`stitch-sop.md`](./stitch-sop.md) 템플릿에 다음을 **설정 UI 도메인**으로 채운다.
 
 ```text
-목표: 국내 주식 모니터링 서비스의 관리자 웹 — 종목/테마/뉴스 규칙/런타임 설정 운영
+목표: 국내 주식 모니터링 서비스의 설정 UI(`/settings/*`) — 종목/테마/뉴스 규칙/런타임 설정 운영
 사용자: 테넌트 OWNER·ADMIN (세션 로그인)
 플랫폼: web desktop 우선, 좁은 창에서 사이드바 축소 또는 햄버거
 필수 상태: 기본, 로딩, 빈 데이터, 오류(409 상한·502 검색·403 CSRF), 권한(MEMBER는 진입 불가)
@@ -87,7 +87,7 @@ related_prd: ../requirements/admin-site-prd.md
 3. 실행:
 
 ```bash
-npm run stitch:admin
+npm run stitch:settings-ui
 ```
 
 4. 결과 URL이 `docs/design/artifacts/stitch-output/run-summary.md`에 기록된다.
@@ -101,7 +101,7 @@ npm run stitch:admin
 
 ## 7. 확정 시 기록할 필드 (비교표·PRD 동기화)
 
-[`admin-site-design-comparison.md`](./admin-site-design-comparison.md) 및 필요 시 PRD에 다음을 남긴다.
+[`settings-ui-design-comparison.md`](./settings-ui-design-comparison.md) 및 필요 시 PRD에 다음을 남긴다.
 
 - CLI **프로젝트 ID**
 - 디자인 시스템 **asset / ID**

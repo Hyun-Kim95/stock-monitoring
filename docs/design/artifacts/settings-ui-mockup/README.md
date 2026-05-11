@@ -3,16 +3,16 @@ type: doc
 project: stockMonitoring
 doc_lane: design
 updated_at: 2026-05-10
-tags: [admin, mockup, option-a]
+tags: [settings-ui, mockup, option-a]
 ---
 
-# 관리자 UI 정적 목업 (안 A)
+# 설정 UI 정적 목업 (안 A)
 
 ## 보는 방법
 
 - **파일로 바로 열기:** `index.html`을 브라우저로 연다.
 - **로컬 서버(권장):** 레포 루트에서  
-  `npx --yes serve docs/design/artifacts/admin-mockup -p 3456`  
+  `npx --yes serve docs/design/artifacts/settings-ui-mockup -p 3456`  
   후 브라우저에서 `http://localhost:3456`
 
 ## 포함 기능
@@ -24,5 +24,5 @@ tags: [admin, mockup, option-a]
 
 ## 관련 문서
 
-- [`../../admin-site-wireframes-option-a.md`](../../admin-site-wireframes-option-a.md)
-- [`../../../requirements/admin-site-prd.md`](../../../requirements/admin-site-prd.md)
+- [`../../settings-ui-wireframes-option-a.md`](../../settings-ui-wireframes-option-a.md)
+- [`../../../requirements/settings-ui-prd.md`](../../../requirements/settings-ui-prd.md)

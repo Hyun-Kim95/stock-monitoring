@@ -28,7 +28,8 @@
     "typecheck": "tsc --noEmit -p apps/api/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json && tsc --noEmit -p packages/shared/tsconfig.json && tsc --noEmit -p packages/db/tsconfig.json",
     "lint": "eslint apps packages",
     "test": "npm run test --workspaces --if-present",
-    "stitch:admin": "node scripts/stitch-generate-admin.mjs"
+    "stitch:settings-ui": "node scripts/stitch-generate-settings-ui.mjs",
+    "stitch:admin": "npm run stitch:settings-ui"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",

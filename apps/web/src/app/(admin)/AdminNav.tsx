@@ -4,10 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const MENUS = [
-  { href: "/admin/stocks", tour: "admin-nav-stocks", label: "종목 관리", desc: "종목 검색·등록·비활성" },
-  { href: "/admin/themes", tour: "admin-nav-themes", label: "테마 관리", desc: "테마 생성·종목 매핑" },
-  { href: "/admin/news-rules", tour: "admin-nav-news-rules", label: "뉴스 규칙", desc: "검색 포함/제외 규칙" },
-  { href: "/admin/inquiries", tour: "admin-nav-contact", label: "문의하기", desc: "문의·답변 확인" },
+  { href: "/settings/stocks", tour: "admin-nav-stocks", label: "종목 관리", desc: "종목 검색·등록·비활성" },
+  { href: "/settings/themes", tour: "admin-nav-themes", label: "테마 관리", desc: "테마 생성·종목 매핑" },
+  { href: "/settings/news-rules", tour: "admin-nav-news-rules", label: "뉴스 규칙", desc: "검색 포함/제외 규칙" },
+  { href: "/settings/inquiries", tour: "admin-nav-contact", label: "문의하기", desc: "문의·답변 확인" },
 ] as const;
 
 export function AdminNav() {

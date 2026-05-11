@@ -13,6 +13,15 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@stock-monitoring/shared"],
   /** 개발 모드 좌하단 N 인디케이터 숨김 */
   devIndicators: false,
+  async redirects() {
+    return [
+      {
+        source: "/admin/:path*",
+        destination: "/settings/:path*",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

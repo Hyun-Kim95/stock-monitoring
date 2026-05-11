@@ -191,7 +191,7 @@ function addStockSearchErrorMessage(ex: unknown): string {
 function addStockRegisterErrorMessage(ex: unknown): string {
   if (ex instanceof ApiError) {
     if (ex.status === 401) {
-      return "관리자 토큰이 필요합니다. NEXT_PUBLIC_ADMIN_TOKEN을 설정하거나 관리자(종목 관리)에서 등록하세요.";
+      return "Bearer 토큰이 필요합니다. NEXT_PUBLIC_ADMIN_TOKEN을 설정하거나 설정 UI(종목 관리)에서 등록하세요.";
     }
     const b = ex.body as { error?: { code?: string; message?: string } } | undefined;
     if (b?.error?.code === "DUPLICATE") return "이미 등록된 종목코드입니다.";
@@ -942,7 +942,7 @@ export function DashboardPage() {
               >
                 필터
               </button>
-              <Link href="/admin/stocks" className={`${headerButtonClass} dashboard-settings-btn`}>
+              <Link href="/settings/stocks" className={`${headerButtonClass} dashboard-settings-btn`}>
                 설정
               </Link>
             </div>

@@ -5,11 +5,11 @@ doc_lane: design
 updated_at: 2026-05-10
 design_choice: option-a
 design_choice_at: 2026-05-10
-tags: [admin, comparison, gate]
-related_prd: ../requirements/admin-site-prd.md
+tags: [settings-ui, comparison, gate]
+related_prd: ../requirements/settings-ui-prd.md
 ---
 
-# 관리자 사이트 — 안 A / 안 B 비교 및 선택 기록
+# 설정 UI — 안 A / 안 B 비교 및 선택 기록
 
 `.cursor/rules/65-design-gate.mdc`에 따라 **동일 범위**에 대해 안 A(로컬)·안 B(Stitch·CLI)를 비교 가능한 수준으로 둔다.
 
@@ -17,16 +17,16 @@ related_prd: ../requirements/admin-site-prd.md
 
 | 항목 | 내용 |
 |------|------|
-| 산출물 | [`admin-site-wireframes-option-a.md`](./admin-site-wireframes-option-a.md) |
-| 실행 목업 | 브라우저용 정적 HTML [`artifacts/admin-mockup/index.html`](./artifacts/admin-mockup/index.html) · 열기 방법은 동 폴더 [`README.md`](./artifacts/admin-mockup/README.md) |
+| 산출물 | [`settings-ui-wireframes-option-a.md`](./settings-ui-wireframes-option-a.md) |
+| 실행 목업 | 브라우저용 정적 HTML [`artifacts/settings-ui-mockup/index.html`](./artifacts/settings-ui-mockup/index.html) · 열기 방법은 동 폴더 [`README.md`](./artifacts/settings-ui-mockup/README.md) |
 | 요약 | ASCII 와이어 + 상태·반응형·다크모드 텍스트 스펙 |
 
 ## 안 B — Stitch (CLI)
 
 | 항목 | 내용 |
 |------|------|
-| 산출물·절차 | [`admin-site-stitch-option-b-cli.md`](./admin-site-stitch-option-b-cli.md) |
-| 레포 스크립트 | 루트 `npm run stitch:admin` (`STITCH_API_KEY` 필요) → [`artifacts/stitch-output/run-summary.md`](./artifacts/stitch-output/run-summary.md) |
+| 산출물·절차 | [`settings-ui-stitch-option-b-cli.md`](./settings-ui-stitch-option-b-cli.md) |
+| 레포 스크립트 | 루트 `npm run stitch:settings-ui` (`STITCH_API_KEY` 필요) → [`artifacts/stitch-output/run-summary.md`](./artifacts/stitch-output/run-summary.md) |
 | 요약 | 공식 `@google/stitch-sdk`(Node); MCP 미사용 |
 
 ---

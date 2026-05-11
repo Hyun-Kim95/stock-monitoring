@@ -3,22 +3,22 @@ type: doc
 project: stockMonitoring
 doc_lane: design
 updated_at: 2026-05-10
-tags: [admin, wireframes, option-a, dark-mode]
-related_prd: ../requirements/admin-site-prd.md
+tags: [settings-ui, wireframes, option-a, dark-mode]
+related_prd: ../requirements/settings-ui-prd.md
 ---
 
-# 안 A — 관리자 사이트 로컬 와이어·화면 스펙
+# 안 A — 설정 UI 로컬 와이어·화면 스펙
 
 **성격:** 프로젝트 내 **정적 목업 명세**(ASCII 와이어 + 상태·반응형·다크모드 기준).  
-**근거 PRD:** [`docs/requirements/admin-site-prd.md`](../requirements/admin-site-prd.md) §4.1~§4.5, §6.
+**근거 PRD:** [`docs/requirements/settings-ui-prd.md`](../requirements/settings-ui-prd.md) §4.1~§4.5, §6.
 
-**IA 참고:** PRD는 네비에 **종목 · 테마 · 뉴스 규칙 · 설정**을 둔다. 현재 웹 `AdminNav`에는 `/admin/settings` 링크가 없고 **문의(`/contact`)** 가 포함되어 있으므로, 본 안은 **목표 IA**를 그린다 — 네비 정렬은 구현 시 PRD·본 안 기준으로 통합 검토.
+**IA 참고:** PRD는 네비에 **종목 · 테마 · 뉴스 규칙 · 설정**을 둔다. 현재 웹 `AdminNav`에는 `/settings/settings` 링크가 없고 **문의(`/settings/inquiries`, 예전 `/contact` 리다이렉트)** 가 포함되어 있으므로, 본 안은 **목표 IA**를 그린다 — 네비 정렬은 구현 시 PRD·본 안 기준으로 통합 검토.
 
 ---
 
 ## 공통 셸 (데스크톱 · `min-width: 980px` 정렬)
 
-[`mobile-dashboard-responsive.md`](../requirements/mobile-dashboard-responsive.md)와 동일하게 관리 레이아웃 기준 **980px** 를 맞춘다.
+[`mobile-dashboard-responsive.md`](../requirements/mobile-dashboard-responsive.md)와 동일하게 설정 UI 레이아웃 기준 **980px** 를 맞춘다.
 
 ```
 ┌──────────────────┬────────────────────────────────────────────────────────┐
@@ -46,7 +46,7 @@ related_prd: ../requirements/admin-site-prd.md
 
 ---
 
-## 화면 A1 — 종목 관리 (`/admin/stocks`)
+## 화면 A1 — 종목 관리 (`/settings/stocks`)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -73,11 +73,11 @@ related_prd: ../requirements/admin-site-prd.md
 | 로딩 | 스켈레톤 또는 짧은 “불러오는 중…” |
 | 빈 | “등록된 종목이 없습니다” + 등록 유도 |
 | 오류 | `error.message` 중심(과도한 JSON 금지 — PRD §7.5), 409 상한·502 검색 등 구분 |
-| 권한 | 비관리자는 셸 진입 전 리다이렉트 — 화면 내 **권한 제한** 상태는 API 오류 시만 |
+| 권한 | 설정 권한 없음(`MEMBER` 등)은 셸 진입 전 리다이렉트 — 화면 내 **권한 제한** 상태는 API 오류 시만 |
 
 ---
 
-## 화면 A2 — 테마 관리 (`/admin/themes`)
+## 화면 A2 — 테마 관리 (`/settings/themes`)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -91,11 +91,11 @@ related_prd: ../requirements/admin-site-prd.md
 
 ### 상태 UI
 
-로딩·빈·오류·409 중복 — PRD §7 및 [`admin-site-prd.md`](../requirements/admin-site-prd.md) §4.3.
+로딩·빈·오류·409 중복 — PRD §7 및 [`settings-ui-prd.md`](../requirements/settings-ui-prd.md) §4.3.
 
 ---
 
-## 화면 A3 — 뉴스 규칙 (`/admin/news-rules`)
+## 화면 A3 — 뉴스 규칙 (`/settings/news-rules`)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -111,7 +111,7 @@ GLOBAL/STOCK·`stockId` 검증 오류 시 필드 인접 **400** 메시지.
 
 ---
 
-## 화면 A4 — 런타임 설정 (`/admin/settings`)
+## 화면 A4 — 런타임 설정 (`/settings/settings`)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -136,5 +136,5 @@ GLOBAL/STOCK·`stockId` 검증 오류 시 필드 인접 **400** 메시지.
 ## 산출물로서의 활용
 
 - Gate 1 **목업·화면 스펙** 충족.
-- **인터랙티브 정적 목업:** [`artifacts/admin-mockup/index.html`](./artifacts/admin-mockup/index.html) (토글·탭·상태 데모).
-- 구현 시 **안 B(Stitch)** 와 비교·선택은 [`admin-site-design-comparison.md`](./admin-site-design-comparison.md)에 기록.
+- **인터랙티브 정적 목업:** [`artifacts/settings-ui-mockup/index.html`](./artifacts/settings-ui-mockup/index.html) (토글·탭·상태 데모).
+- 구현 시 **안 B(Stitch)** 와 비교·선택은 [`settings-ui-design-comparison.md`](./settings-ui-design-comparison.md)에 기록.

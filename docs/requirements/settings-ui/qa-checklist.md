@@ -3,21 +3,21 @@ type: doc
 project: stockMonitoring
 doc_lane: requirements
 updated_at: 2026-05-10
-tags: [admin, qa, checklist]
-related_prd: ../admin-site-prd.md
+tags: [settings-ui, qa, checklist]
+related_prd: ../settings-ui-prd.md
 ---
 
-# 관리자 사이트 QA 체크리스트
+# 설정 UI QA 체크리스트
 
-기준 문서: [`admin-site-prd.md`](../admin-site-prd.md). MVP 범위는 PRD §11을 따른다.
+기준 문서: [`settings-ui-prd.md`](../settings-ui-prd.md). MVP 범위는 PRD §11을 따른다.
 
 ## 인증·권한
 
-- [ ] 비로그인 상태에서 `/admin/*` 접근 시 로그인 플로로 유도된다.
-- [ ] `MEMBER` 역할은 관리 레이아웃에 머무르지 않고(리다이렉트) 대시보드 등으로 돌아간다.
+- [ ] 비로그인 상태에서 `/settings/*` 접근 시 로그인 플로로 유도된다.
+- [ ] `MEMBER` 역할은 설정 UI 레이아웃에 머무르지 않고(리다이렉트) 대시보드 등으로 돌아간다.
 - [ ] `OWNER`/`ADMIN` 만 종목·테마·뉴스 규칙·설정 **쓰기**가 가능하다(API 직접 호출 시 401/403 기대와 일치).
 
-## 화면별 — 종목 (`/admin/stocks`)
+## 화면별 — 종목 (`/settings/stocks`)
 
 - [ ] 활성 수 / 최대치 표시와 서버 상한 정책이 일치한다.
 - [ ] 신규 등록 시 상한 초과면 **409** 메시지가 사용자에게 읽히게 표시된다.
@@ -25,17 +25,17 @@ related_prd: ../admin-site-prd.md
 - [ ] 종목 검색 실패 시 **502** 등 상류 오류가 안내된다(문자열만 덤프하지 않음).
 - [ ] 비활성 버튼 후 목록·대시보드 반영이 일관된다.
 
-## 화면별 — 테마 (`/admin/themes`)
+## 화면별 — 테마 (`/settings/themes`)
 
 - [ ] 테마명 중복 시 **409** 안내.
 - [ ] 소속 종목 저장 후 대시보드 테마 필터와 정합.
 
-## 화면별 — 뉴스 규칙 (`/admin/news-rules`)
+## 화면별 — 뉴스 규칙 (`/settings/news-rules`)
 
 - [ ] GLOBAL/STOCK + `stockId` 조합 오류 시 **400** 안내.
 - [ ] 규칙 저장 후 뉴스 노출이 기대와 맞는지(캐시 지연 가능성 인지 — PRD §7.3).
 
-## 화면별 — 설정 (`/admin/settings`)
+## 화면별 — 설정 (`/settings/settings`)
 
 - [ ] 존재하지 않는 키로 저장하지 않는다(또는 **404** 처리).
 - [ ] `market_data.provider` 등 변경 후 시세 동작·재시작 요구가 운영 문서와 맞다.
@@ -44,9 +44,9 @@ related_prd: ../admin-site-prd.md
 
 - [ ] **401·403·409·429·502·503** 및 `error.code`별 사용자 메시지 구분(가능 시).
 - [ ] 연속 저장·일괄 작업 시 **429** `RATE_LIMIT` 안내(operations 문서 수치와 운영 환경 일치).
-- [ ] 신규 배포 도메인에서 관리 저장 시 **403** `CSRF_REJECTED` 또는 **503** `CSRF_CONFIG` 재현 여부 — 출처·`WEB_PUBLIC_BASE_URL`/`CORS_ORIGIN` 점검.
+- [ ] 신규 배포 도메인에서 설정 UI 저장 시 **403** `CSRF_REJECTED` 또는 **503** `CSRF_CONFIG` 재현 여부 — 출처·`WEB_PUBLIC_BASE_URL`/`CORS_ORIGIN` 점검.
 - [ ] 네트워크 오류(오프라인 등) 시 일반적인 안내(PRD §7.5).
-- [ ] 라이트/다크 모드에서 관리 화면 가독성.
+- [ ] 라이트/다크 모드에서 설정 화면 가독성.
 
 ## 내비게이션·IA (PRD §4.1)
 

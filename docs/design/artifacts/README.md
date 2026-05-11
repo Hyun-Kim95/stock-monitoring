@@ -4,5 +4,5 @@
 
 | 폴더 | 내용 |
 |------|------|
-| [`admin-mockup/`](./admin-mockup/) | 안 A — 정적 인터랙티브 목업 |
-| [`stitch-output/`](./stitch-output/) | 안 B — `npm run stitch:admin` 요약(`run-summary.md`) |
+| [`settings-ui-mockup/`](./settings-ui-mockup/) | 안 A — 정적 인터랙티브 목업 |
+| [`stitch-output/`](./stitch-output/) | 안 B — `npm run stitch:settings-ui`(설정 UI) 요약(`run-summary.md`) |
