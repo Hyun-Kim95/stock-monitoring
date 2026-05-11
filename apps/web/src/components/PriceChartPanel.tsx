@@ -675,7 +675,11 @@ export function PriceChartPanel({
 
       const el = containerRef.current;
       const w = Math.max(200, el?.clientWidth ?? 200);
-      const rawH = fillHeight && el ? el.clientHeight : 280;
+      let rawH = fillHeight && el ? el.clientHeight : 280;
+      if (fillHeight && rawH < 80 && typeof window !== "undefined") {
+        const vh = window.visualViewport?.height ?? window.innerHeight;
+        rawH = Math.max(rawH, Math.floor(vh * 0.28));
+      }
       const h = fillHeight ? Math.max(120, rawH > 0 ? rawH : 280) : 280;
       const isMinute = granularity === "minute";
 
@@ -822,7 +826,12 @@ export function PriceChartPanel({
         if (!containerRef.current || !chartRef.current) return;
         if (fillHeight) {
           const rw = Math.max(200, containerRef.current.clientWidth);
-          const rh = Math.max(120, containerRef.current.clientHeight);
+          let rh = containerRef.current.clientHeight;
+          if (rh < 80 && typeof window !== "undefined") {
+            const vh = window.visualViewport?.height ?? window.innerHeight;
+            rh = Math.max(rh, Math.floor(vh * 0.28));
+          }
+          rh = Math.max(120, rh);
           chartRef.current.applyOptions({ width: rw, height: rh });
         } else {
           chartRef.current.applyOptions({
@@ -836,7 +845,12 @@ export function PriceChartPanel({
         const syncFill = () => {
           if (!chartRef.current || !containerRef.current) return;
           const rw = Math.max(200, containerRef.current.clientWidth);
-          const rh = Math.max(120, containerRef.current.clientHeight);
+          let rh = containerRef.current.clientHeight;
+          if (rh < 80 && typeof window !== "undefined") {
+            const vh = window.visualViewport?.height ?? window.innerHeight;
+            rh = Math.max(rh, Math.floor(vh * 0.28));
+          }
+          rh = Math.max(120, rh);
           chartRef.current.applyOptions({ width: rw, height: rh });
         };
         requestAnimationFrame(() => {
@@ -971,6 +985,9 @@ export function PriceChartPanel({
   const changeRateColor =
     changeRate == null ? "var(--muted-foreground)" : changeRate > 0 ? "var(--up)" : changeRate < 0 ? "var(--down)" : "var(--text)";
 
+  /** 모바일 대시보드: 봉 단위·봉 개수 등이 여러 줄이 되며 세로를 전부 잡아 캔들 영역 clientHeight=0 이 되는 것 방지 */
+  const mobileToolbarScroll = fillHeight && compactHeader;
+
   return (
     <div
       style={
@@ -985,7 +1002,19 @@ export function PriceChartPanel({
           : { minHeight: 200 }
       }
     >
-      <div style={{ marginBottom: compactHeader ? 4 : 8 }}>
+      <div
+        style={
+          mobileToolbarScroll
+            ? {
+                marginBottom: compactHeader ? 4 : 8,
+                flexShrink: 0,
+                maxHeight: "min(38dvh, 280px)",
+                overflowY: "auto",
+                WebkitOverflowScrolling: "touch",
+              }
+            : { marginBottom: compactHeader ? 4 : 8 }
+        }
+      >
         {!compactHeader ? (
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 10, marginBottom: 6 }}>
             <span style={{ fontWeight: 700, fontSize: 14 }}>
