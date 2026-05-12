@@ -680,8 +680,12 @@ export function PriceChartPanel({
         const vh = window.visualViewport?.height ?? window.innerHeight;
         rawH = Math.max(rawH, Math.floor(vh * 0.28));
       }
-      const h = fillHeight ? Math.max(120, rawH > 0 ? rawH : 280) : 280;
+      const h = fillHeight ? Math.max(128, rawH > 0 ? rawH : 280) : 280;
       const isMinute = granularity === "minute";
+      /** rightPriceScale에 옵션을 일부만 넘기면 scaleMargins 기본값이 사라져 끝이 잘리는 경우가 있어 명시 */
+      const priceScaleMargins = fillHeight
+        ? { top: 0.14, bottom: 0.18 }
+        : { top: 0.08, bottom: 0.12 };
 
       const chart = mod.createChart(containerRef.current, {
         width: w,
@@ -700,7 +704,10 @@ export function PriceChartPanel({
           vertLine: { labelBackgroundColor: "rgba(60,60,60,0.9)" },
           horzLine: { labelBackgroundColor: "rgba(60,60,60,0.9)" },
         },
-        rightPriceScale: { borderColor: "rgba(128,128,128,0.25)" },
+        rightPriceScale: {
+          borderColor: "rgba(128,128,128,0.25)",
+          scaleMargins: priceScaleMargins,
+        },
         timeScale: {
           borderColor: "rgba(128,128,128,0.25)",
           timeVisible: isMinute,
@@ -831,7 +838,7 @@ export function PriceChartPanel({
             const vh = window.visualViewport?.height ?? window.innerHeight;
             rh = Math.max(rh, Math.floor(vh * 0.28));
           }
-          rh = Math.max(120, rh);
+          rh = Math.max(128, rh);
           chartRef.current.applyOptions({ width: rw, height: rh });
         } else {
           chartRef.current.applyOptions({
@@ -850,7 +857,7 @@ export function PriceChartPanel({
             const vh = window.visualViewport?.height ?? window.innerHeight;
             rh = Math.max(rh, Math.floor(vh * 0.28));
           }
-          rh = Math.max(120, rh);
+          rh = Math.max(128, rh);
           chartRef.current.applyOptions({ width: rw, height: rh });
         };
         requestAnimationFrame(() => {
@@ -1211,7 +1218,7 @@ export function PriceChartPanel({
               fillHeight
                 ? {
                     flex: 1,
-                    minHeight: 120,
+                    minHeight: 128,
                     minWidth: 0,
                     width: "100%",
                     overflow: "hidden",
