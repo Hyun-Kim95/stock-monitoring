@@ -12,42 +12,18 @@ import {
   parseKisSignedFluctuation,
 } from "./kis-rest.js";
 import {
+  kstSessionSlotAndMinutesForInstant,
   kstYmdForInstant,
   readStckBsopYmd,
   shouldForceClosedMarketSessionByBsop,
-  type KrxSessionSlot,
+  shouldProbeKisNxPriceFirst,
 } from "./kis-trading-session.js";
 import { isKrxScheduledFullDayClosureKstYmd } from "../krx-scheduled-closure-ymd.js";
 
 type SessionState = "OPEN" | "CLOSED" | "PRE" | "AFTER";
-type SessionSlot = KrxSessionSlot;
 const KIS_TOKEN_CACHE_FILE = path.join(os.homedir(), ".stock-monitoring", "kis-token-cache.json");
 /** NX 미적격(false) 고정 방지: 일정 시간 후 재판정 */
 const NX_FALSE_RETRY_MS = 10 * 60_000;
-
-function kstSessionSlotNow(): SessionSlot {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    hour12: false,
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).formatToParts(new Date());
-
-  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
-  if (weekday === "Sat" || weekday === "Sun") return "OFF";
-
-  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
-  const minute = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
-  const mins = hour * 60 + minute;
-
-  // 7:30~8:00 PRE, 8:00~15:30는 단일가·정규 포함해 시세·분봉(8시~)과 맞게 REGULAR→OPEN. NXT 15:30~20:00
-  if (mins >= 7 * 60 + 30 && mins < 8 * 60) return "PRE";
-  if (mins >= 8 * 60 && mins < 15 * 60 + 30) return "REGULAR";
-  if (mins >= 15 * 60 + 30 && mins < 20 * 60) return "NXT";
-  if (mins >= 20 * 60 && mins < 20 * 60 + 30) return "AFTER";
-  return "OFF";
-}
 
 type TokenState = { token: string; expiresAt: number };
 let tokenRetryNotBefore = 0;
@@ -321,7 +297,7 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
       const batch: QuoteSnapshot[] = [];
       const gap = Math.max(0, opts.quoteRequestGapMs);
       let hitRateLimit = false;
-      const slot = kstSessionSlotNow();
+      const { slot, mins } = kstSessionSlotAndMinutesForInstant(new Date());
       const todayYmd = kstYmdForInstant(new Date());
       const calendarFullDayClosed = isKrxScheduledFullDayClosureKstYmd(todayYmd);
       for (let i = 0; i < symbols.length; i++) {
@@ -343,7 +319,7 @@ export function createKisPollingProvider(opts: KisPollingOptions): MarketDataPro
           let out: Record<string, string | undefined> | null = null;
           let usedNx = false;
 
-          if ((slot === "NXT" || slot === "AFTER") && shouldProbeNxNow(s.code)) {
+          if (shouldProbeKisNxPriceFirst(slot, mins) && shouldProbeNxNow(s.code)) {
             try {
               const nxOut = await request("NX");
               const nxPrice = parsePositive(nxOut, "stck_prpr", "STCK_PRPR");
