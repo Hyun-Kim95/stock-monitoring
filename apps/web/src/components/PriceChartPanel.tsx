@@ -56,6 +56,19 @@ const GRAN_LABELS: Record<Granularity, string> = {
 const MINUTE_LATEST_FOLLOW_SUPPRESS_MS = 10_000;
 const CHART_RIGHT_OFFSET_BARS = 8;
 
+/** fillHeight에서 캔버스가 컨테이너보다 커지면 하단 시간축이 잘리므로, 높이는 clientHeight를 넘기지 않음 */
+const FILL_HEIGHT_CHART_MIN_PX = 48;
+
+function pixelHeightForFillHeightChart(el: HTMLElement | null): number {
+  if (!el) return 280;
+  let h = el.clientHeight;
+  if (h <= 1 && typeof window !== "undefined") {
+    const vh = window.visualViewport?.height ?? window.innerHeight;
+    h = Math.floor(vh * 0.28);
+  }
+  return h > 0 ? Math.max(FILL_HEIGHT_CHART_MIN_PX, h) : 280;
+}
+
 function toLwCandles(rows: ChartApi["candles"]): CandlestickData<UTCTimestamp>[] {
   return rows.map((r) => ({
     time: Math.floor(new Date(r.t).getTime() / 1000) as UTCTimestamp,
@@ -675,12 +688,7 @@ export function PriceChartPanel({
 
       const el = containerRef.current;
       const w = Math.max(200, el?.clientWidth ?? 200);
-      let rawH = fillHeight && el ? el.clientHeight : 280;
-      if (fillHeight && rawH < 80 && typeof window !== "undefined") {
-        const vh = window.visualViewport?.height ?? window.innerHeight;
-        rawH = Math.max(rawH, Math.floor(vh * 0.28));
-      }
-      const h = fillHeight ? Math.max(128, rawH > 0 ? rawH : 280) : 280;
+      const h = fillHeight && el ? pixelHeightForFillHeightChart(el) : 280;
       const isMinute = granularity === "minute";
       /** rightPriceScale에 옵션을 일부만 넘기면 scaleMargins 기본값이 사라져 끝이 잘리는 경우가 있어 명시 */
       const priceScaleMargins = fillHeight
@@ -833,12 +841,7 @@ export function PriceChartPanel({
         if (!containerRef.current || !chartRef.current) return;
         if (fillHeight) {
           const rw = Math.max(200, containerRef.current.clientWidth);
-          let rh = containerRef.current.clientHeight;
-          if (rh < 80 && typeof window !== "undefined") {
-            const vh = window.visualViewport?.height ?? window.innerHeight;
-            rh = Math.max(rh, Math.floor(vh * 0.28));
-          }
-          rh = Math.max(128, rh);
+          const rh = pixelHeightForFillHeightChart(containerRef.current);
           chartRef.current.applyOptions({ width: rw, height: rh });
         } else {
           chartRef.current.applyOptions({
@@ -852,12 +855,7 @@ export function PriceChartPanel({
         const syncFill = () => {
           if (!chartRef.current || !containerRef.current) return;
           const rw = Math.max(200, containerRef.current.clientWidth);
-          let rh = containerRef.current.clientHeight;
-          if (rh < 80 && typeof window !== "undefined") {
-            const vh = window.visualViewport?.height ?? window.innerHeight;
-            rh = Math.max(rh, Math.floor(vh * 0.28));
-          }
-          rh = Math.max(128, rh);
+          const rh = pixelHeightForFillHeightChart(containerRef.current);
           chartRef.current.applyOptions({ width: rw, height: rh });
         };
         requestAnimationFrame(() => {
@@ -1218,7 +1216,7 @@ export function PriceChartPanel({
               fillHeight
                 ? {
                     flex: 1,
-                    minHeight: 128,
+                    minHeight: 0,
                     minWidth: 0,
                     width: "100%",
                     overflow: "hidden",
@@ -1228,8 +1226,10 @@ export function PriceChartPanel({
           />
           <div
             style={{
-              marginTop: compactHeader && fillHeight ? 4 : 8,
-              minHeight: compactHeader && fillHeight ? 16 : 18,
+              marginTop: compactHeader && fillHeight ? (hoverBar ? 4 : 0) : 8,
+              minHeight: compactHeader && fillHeight ? (hoverBar ? 16 : 0) : 18,
+              maxHeight: compactHeader && fillHeight && !hoverBar ? 0 : undefined,
+              overflow: compactHeader && fillHeight && !hoverBar ? "hidden" : undefined,
               flexShrink: 0,
               fontSize: compactHeader && fillHeight ? 10 : 11,
               lineHeight: 1.55,
@@ -1262,7 +1262,7 @@ export function PriceChartPanel({
                   </>
                 ) : null}
               </>
-            ) : (
+            ) : compactHeader && fillHeight ? null : (
               <span aria-hidden style={{ visibility: "hidden" }}>
                 시 000 · 고 000 · 저 000 · 종 000
               </span>
