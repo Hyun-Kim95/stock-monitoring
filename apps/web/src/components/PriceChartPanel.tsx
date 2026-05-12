@@ -997,6 +997,7 @@ export function PriceChartPanel({
               flexDirection: "column",
               flex: 1,
               minHeight: 0,
+              minWidth: 0,
               /* height:100% 는 iOS·중첩 flex에서 부모 높이 미전달 시 과대 계산되어 캔들이 잘리는 경우가 있어 제외 */
             }
           : { minHeight: 200 }
@@ -1008,11 +1009,16 @@ export function PriceChartPanel({
             ? {
                 marginBottom: compactHeader ? 4 : 8,
                 flexShrink: 0,
-                maxHeight: "min(38dvh, 280px)",
+                minWidth: 0,
+                maxWidth: "100%",
+                maxHeight: "min(34dvh, 260px)",
                 overflowY: "auto",
                 WebkitOverflowScrolling: "touch",
               }
-            : { marginBottom: compactHeader ? 4 : 8 }
+            : {
+                marginBottom: compactHeader ? 4 : 8,
+                ...(fillHeight ? { minWidth: 0, maxWidth: "100%" } : {}),
+              }
         }
       >
         {!compactHeader ? (
@@ -1052,7 +1058,14 @@ export function PriceChartPanel({
             ) : null}
           </div>
         ) : onFold ? (
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              marginBottom: 6,
+              minWidth: 0,
+            }}
+          >
             <button
               type="button"
               className="btn btn-secondary"
@@ -1064,7 +1077,17 @@ export function PriceChartPanel({
             </button>
           </div>
         ) : null}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            alignItems: "center",
+            minWidth: 0,
+            width: "100%",
+            boxSizing: "border-box",
+          }}
+        >
           <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>봉 단위</span>
           {(Object.keys(GRAN_LABELS) as Granularity[]).map((g) => (
             <button
@@ -1174,8 +1197,9 @@ export function PriceChartPanel({
               ? {
                   display: "flex",
                   flexDirection: "column",
-                  flex: 1,
+                  flex: "1 1 0",
                   minHeight: 0,
+                  minWidth: 0,
                   width: "100%",
                 }
               : { display: "flex", flexDirection: "column", width: "100%" }
@@ -1187,7 +1211,7 @@ export function PriceChartPanel({
               fillHeight
                 ? {
                     flex: 1,
-                    minHeight: 0,
+                    minHeight: 120,
                     minWidth: 0,
                     width: "100%",
                     overflow: "hidden",
@@ -1197,10 +1221,10 @@ export function PriceChartPanel({
           />
           <div
             style={{
-              marginTop: 8,
-              minHeight: 18,
+              marginTop: compactHeader && fillHeight ? 4 : 8,
+              minHeight: compactHeader && fillHeight ? 16 : 18,
               flexShrink: 0,
-              fontSize: 11,
+              fontSize: compactHeader && fillHeight ? 10 : 11,
               lineHeight: 1.55,
               color: "var(--muted-foreground)",
             }}

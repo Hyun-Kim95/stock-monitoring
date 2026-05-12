@@ -1376,6 +1376,7 @@ export function DashboardPage() {
                 borderTop: "1px solid var(--border)",
                 flex: isMobile ? "1 1 auto" : undefined,
                 minHeight: isMobile ? 0 : undefined,
+                minWidth: 0,
                 background: "var(--background)",
                 display: "flex",
                 flexDirection: "column",
@@ -1387,6 +1388,7 @@ export function DashboardPage() {
                   paddingTop: 8,
                   flex: 1,
                   minHeight: 0,
+                  minWidth: 0,
                   display: "flex",
                   flexDirection: "column",
                 }}
@@ -1413,6 +1415,7 @@ export function DashboardPage() {
                 color: "var(--muted-foreground)",
                 flex: isMobile ? "1 1 auto" : undefined,
                 minHeight: isMobile ? 0 : undefined,
+                minWidth: 0,
               }}
             >
               {selected
