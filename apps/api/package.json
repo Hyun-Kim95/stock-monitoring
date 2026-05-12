@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "db:migrate:deploy": "npx prisma migrate deploy --schema=../../packages/db/prisma/schema.prisma",
     "start": "tsx src/index.ts",
+    "start:migrate": "npm run db:migrate:deploy && npm run start",
     "test": "vitest run",
     "test:watch": "vitest"
   },
