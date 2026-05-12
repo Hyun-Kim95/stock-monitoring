@@ -504,6 +504,8 @@
     flex: 1;
     min-height: 0;
     min-width: 0;
+    /* 목록+차트를 패널 높이 안에만 배치(차트 로드 후 패널 전체 스크롤 방지) */
+    overflow: hidden;
   }
   .dashboard-watchlist-scroll {
     flex: 1 1 auto;
@@ -539,11 +541,11 @@
     overflow: auto;
   }
   @media (max-width: 979px) {
-    /* 차트 하단이 .panel overflow-hidden에 잘리는 완화(가로는 유지) */
-    .dashboard-panel-watchlist.panel {
-      overflow-x: hidden;
-      overflow-y: visible;
-    }
+    /*
+     * 패널에 overflow-x:hidden + overflow-y:visible 을 두면 스펙상 y축이 auto로 바뀌어
+     * 차트가 그려질 때 패널 전체에 세로 스크롤이 생기고 시간축이 아래로 밀림.
+     * 가로 넘침은 min-width:0 체인·표 영역 overflow로 처리하고, 세로는 .dashboard-watchlist-body overflow:hidden으로 캡슐화.
+     */
     .dashboard-grid {
       grid-template-rows: minmax(0, 1.1fr) minmax(0, 0.9fr);
     }
@@ -552,7 +554,7 @@
       max-height: min(42vh, 360px);
     }
     .dashboard-watchlist-chart-section {
-      flex: 1 1 auto;
+      flex: 1 1 0;
       min-height: 0;
     }
   }
