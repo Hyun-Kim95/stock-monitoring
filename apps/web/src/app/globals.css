@@ -595,8 +595,15 @@
       z-index: 50;
       padding-top: env(safe-area-inset-top, 0px);
     }
-    .dashboard-grid--mobile .data-table-watchlist thead th {
+    .dashboard-grid--mobile .dashboard-panel-watchlist > .panel-h {
+      position: sticky;
       top: var(--dashboard-sticky-header-h, 120px);
+      z-index: 45;
+      background: var(--card);
+      box-shadow: 0 1px 0 var(--border);
+    }
+    .dashboard-grid--mobile .data-table-watchlist thead th {
+      top: calc(var(--dashboard-sticky-header-h, 120px) + var(--dashboard-sticky-watchlist-h, 48px));
       z-index: 44;
     }
     /* 대시보드가 아닌 ≤979 그리드(방어적) */

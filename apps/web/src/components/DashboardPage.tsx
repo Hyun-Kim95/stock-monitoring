@@ -245,6 +245,7 @@ export function DashboardPage() {
   const [isMobile, setIsMobile] = useState(false);
   const dashboardRootRef = useRef<HTMLDivElement>(null);
   const dashboardHeaderRef = useRef<HTMLElement>(null);
+  const watchlistPanelHeadRef = useRef<HTMLDivElement>(null);
   const newsPanelRef = useRef<HTMLDivElement>(null);
   const mobileChartPanelRef = useRef<HTMLDivElement>(null);
   const [visibleColumns, setVisibleColumns] = useState<ColumnKey[]>(DEFAULT_VISIBLE_COLUMNS);
@@ -330,34 +331,47 @@ export function DashboardPage() {
     if (!root) return;
     if (!isMobile) {
       root.style.removeProperty("--dashboard-sticky-header-h");
+      root.style.removeProperty("--dashboard-sticky-watchlist-h");
       return;
     }
     const header = dashboardHeaderRef.current;
+    const panelHead = watchlistPanelHeadRef.current;
     if (!header) return;
     const apply = () => {
       const hh = Math.ceil(header.getBoundingClientRect().height);
       root.style.setProperty("--dashboard-sticky-header-h", `${hh}px`);
+      if (panelHead) {
+        const ph = Math.ceil(panelHead.getBoundingClientRect().height);
+        root.style.setProperty("--dashboard-sticky-watchlist-h", `${ph}px`);
+      } else {
+        root.style.removeProperty("--dashboard-sticky-watchlist-h");
+      }
     };
     apply();
     const ro = new ResizeObserver(apply);
     ro.observe(header);
+    if (panelHead) ro.observe(panelHead);
     return () => {
       ro.disconnect();
       root.style.removeProperty("--dashboard-sticky-header-h");
+      root.style.removeProperty("--dashboard-sticky-watchlist-h");
     };
   }, [isMobile]);
 
   useEffect(() => {
     if (!isMobile || !selectedId) return;
+    /* 차트 패널이 열려 있으면 뉴스로 스크롤하지 않음(차트 보기 버튼 동작과 충돌 방지) */
+    if (mobileChartPanelOpen) return;
     const el = newsPanelRef.current;
     if (!el) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const delay = mobileChartPanelOpen ? 150 : 0;
     const tid = window.setTimeout(() => {
       el.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
-    }, delay);
+    }, 0);
     return () => clearTimeout(tid);
-  }, [isMobile, selectedId, mobileChartPanelOpen, newsLoading]);
+    /* mobileChartPanelOpen은 의도적으로 의존성에서 제외: 차트 열림 시 뉴스로 점프 방지 */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, selectedId, newsLoading]);
 
   useEffect(() => {
     if (!selectedId) setMobileChartPanelOpen(false);
@@ -1196,6 +1210,7 @@ export function DashboardPage() {
       >
         <div className="panel dashboard-panel-watchlist" data-tour="watchlist-panel">
           <div
+            ref={watchlistPanelHeadRef}
             className="panel-h"
             style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
           >
