@@ -245,7 +245,6 @@ export function DashboardPage() {
   const [isMobile, setIsMobile] = useState(false);
   const dashboardRootRef = useRef<HTMLDivElement>(null);
   const dashboardHeaderRef = useRef<HTMLElement>(null);
-  const watchlistPanelHeadRef = useRef<HTMLDivElement>(null);
   const newsPanelRef = useRef<HTMLDivElement>(null);
   const mobileChartPanelRef = useRef<HTMLDivElement>(null);
   const [visibleColumns, setVisibleColumns] = useState<ColumnKey[]>(DEFAULT_VISIBLE_COLUMNS);
@@ -331,30 +330,20 @@ export function DashboardPage() {
     if (!root) return;
     if (!isMobile) {
       root.style.removeProperty("--dashboard-sticky-header-h");
-      root.style.removeProperty("--dashboard-sticky-watchlist-h");
       return;
     }
     const header = dashboardHeaderRef.current;
-    const panelHead = watchlistPanelHeadRef.current;
     if (!header) return;
     const apply = () => {
       const hh = Math.ceil(header.getBoundingClientRect().height);
       root.style.setProperty("--dashboard-sticky-header-h", `${hh}px`);
-      if (panelHead) {
-        const ph = Math.ceil(panelHead.getBoundingClientRect().height);
-        root.style.setProperty("--dashboard-sticky-watchlist-h", `${ph}px`);
-      } else {
-        root.style.removeProperty("--dashboard-sticky-watchlist-h");
-      }
     };
     apply();
     const ro = new ResizeObserver(apply);
     ro.observe(header);
-    if (panelHead) ro.observe(panelHead);
     return () => {
       ro.disconnect();
       root.style.removeProperty("--dashboard-sticky-header-h");
-      root.style.removeProperty("--dashboard-sticky-watchlist-h");
     };
   }, [isMobile]);
 
@@ -1207,7 +1196,6 @@ export function DashboardPage() {
       >
         <div className="panel dashboard-panel-watchlist" data-tour="watchlist-panel">
           <div
-            ref={watchlistPanelHeadRef}
             className="panel-h"
             style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
           >

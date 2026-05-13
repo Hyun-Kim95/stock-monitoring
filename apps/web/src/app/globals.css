@@ -594,21 +594,9 @@
       z-index: 50;
       padding-top: env(safe-area-inset-top, 0px);
     }
-    .dashboard-grid--mobile .dashboard-panel-watchlist > .panel-h {
-      position: sticky;
-      top: var(--dashboard-sticky-header-h, 120px);
-      z-index: 45;
-      background: var(--card);
-      box-shadow: 0 1px 0 var(--border);
-    }
     .dashboard-grid--mobile .data-table-watchlist thead th {
-      top: calc(var(--dashboard-sticky-header-h, 120px) + var(--dashboard-sticky-watchlist-h, 48px));
+      top: var(--dashboard-sticky-header-h, 120px);
       z-index: 44;
-    }
-    /* table-wrap의 overflow-x: auto는 자동으로 overflow-y: auto가 되어 thead sticky 범위를 표 내부로 가둠 → 모바일에서는 clip으로 끊지 않고 문서 sticky 사용 */
-    .dashboard-grid--mobile .dashboard-watchlist-table-wrap {
-      overflow-x: clip;
-      overflow-y: visible;
     }
     /* 대시보드가 아닌 ≤979 그리드(방어적) */
     .dashboard-grid:not(.dashboard-grid--mobile) {
@@ -679,7 +667,9 @@
     }
   }
   .dashboard-watchlist-table-wrap {
-    overflow-x: auto;
+    /* overflow-x: auto는 overflow-y도 자동 auto가 되어 thead sticky 컨테이너를 표 안에 가둠 → clip + visible로 끊지 않음 */
+    overflow-x: clip;
+    overflow-y: visible;
     -webkit-overflow-scrolling: touch;
     min-height: 0;
     margin: 0 -4px;
