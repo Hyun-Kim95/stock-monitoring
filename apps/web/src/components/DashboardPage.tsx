@@ -60,6 +60,16 @@ const PINNED_STOCK_IDS_KEY = "dashboard.pinnedStockIds";
 const DASHBOARD_BASIC_FILTERS_KEY = "dashboard.basicFilters";
 const WATCHLIST_VISIBLE_COLUMNS_KEY = "dashboard.watchlistVisibleColumns";
 const MOBILE_BREAKPOINT_MAX = 979;
+const MOBILE_CHART_AUTO_SHOW_KEY = "dashboard.mobileChartAutoShow";
+
+function readMobileChartAutoShowFromStorage(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return localStorage.getItem(MOBILE_CHART_AUTO_SHOW_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 const DEFAULT_VISIBLE_COLUMNS: ColumnKey[] = [
   "pin",
   "name",
@@ -228,7 +238,11 @@ export function DashboardPage() {
   const [addStockRegistering, setAddStockRegistering] = useState<string | null>(null);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [chartCollapsed, setChartCollapsed] = useState(false);
+  /** 모바일(≤979px): 관심종목·뉴스 사이 독립 패널에 차트 표시 여부 */
+  const [mobileChartPanelOpen, setMobileChartPanelOpen] = useState(false);
+  const [mobileChartAutoShow, setMobileChartAutoShow] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const mobileChartPanelRef = useRef<HTMLDivElement>(null);
   const [visibleColumns, setVisibleColumns] = useState<ColumnKey[]>(DEFAULT_VISIBLE_COLUMNS);
   const addStockDialogRef = useRef<HTMLDialogElement>(null);
   const filterDialogRef = useRef<HTMLDialogElement>(null);
@@ -292,6 +306,24 @@ export function DashboardPage() {
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
+
+  useEffect(() => {
+    setMobileChartAutoShow(readMobileChartAutoShowFromStorage());
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile || !mobileChartPanelOpen) return;
+    const el = mobileChartPanelRef.current;
+    if (!el) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    requestAnimationFrame(() => {
+      el.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+    });
+  }, [isMobile, mobileChartPanelOpen, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) setMobileChartPanelOpen(false);
+  }, [selectedId]);
 
   useEffect(() => {
     let mounted = true;
@@ -434,6 +466,15 @@ export function DashboardPage() {
     }
   }, [changeRateAlertsOn]);
 
+  const persistMobileChartAutoShow = useCallback((v: boolean) => {
+    setMobileChartAutoShow(v);
+    try {
+      localStorage.setItem(MOBILE_CHART_AUTO_SHOW_KEY, v ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const refreshStocks = useCallback(async () => {
     setStocksLoading(true);
     try {
@@ -487,6 +528,12 @@ export function DashboardPage() {
         });
         if (res?.stock?.id) {
           setSelectedId(res.stock.id);
+          setChartCollapsed(false);
+          if (typeof window !== "undefined" && window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_MAX}px)`).matches) {
+            setMobileChartPanelOpen(readMobileChartAutoShowFromStorage());
+          } else {
+            setMobileChartPanelOpen(false);
+          }
         }
         setAddStockItems([]);
         setAddStockQuery("");
@@ -514,9 +561,15 @@ export function DashboardPage() {
 
   const selected = stocks.find((s) => s.id === selectedId) ?? null;
 
-  const selectStock = useCallback((stockId: string) => {
+  const selectStock = useCallback((stockId: string, opts?: { openMobileChart?: boolean }) => {
     setSelectedId(stockId);
     setChartCollapsed(false);
+    if (typeof window !== "undefined" && window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_MAX}px)`).matches) {
+      const auto = readMobileChartAutoShowFromStorage();
+      setMobileChartPanelOpen(opts?.openMobileChart ?? auto);
+    } else {
+      setMobileChartPanelOpen(false);
+    }
   }, []);
 
   const openStockByCode = useCallback(
@@ -532,7 +585,7 @@ export function DashboardPage() {
       setMarketFilter("ALL");
       setSessionFilter("ALL");
       setNxtFilter("ALL");
-      selectStock(s.id);
+      selectStock(s.id, { openMobileChart: true });
     },
     [stocks, selectStock],
   );
@@ -1063,6 +1116,22 @@ export function DashboardPage() {
             </label>
           </div>
           {changeRateAlertErr ? <div style={{ fontSize: 12, color: "var(--down)" }}>{changeRateAlertErr}</div> : null}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12 }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer", userSelect: "none" }}>
+              <input
+                type="checkbox"
+                checked={mobileChartAutoShow}
+                onChange={(e) => persistMobileChartAutoShow(e.target.checked)}
+                aria-label="종목 선택 시 차트 자동 표시"
+              />
+              <span>
+                <span style={{ fontWeight: 600 }}>종목 선택 시 차트 자동 표시</span>
+                <span style={{ display: "block", color: "var(--muted-foreground)", fontSize: 11, marginTop: 4 }}>
+                  켜면 좁은 화면에서 종목을 바꿀 때마다 가격 차트 패널이 자동으로 펼쳐집니다.
+                </span>
+              </span>
+            </label>
+          </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             <button type="button" className="btn btn-secondary" onClick={resetDashboardFilters}>
               조건 초기화
@@ -1078,11 +1147,24 @@ export function DashboardPage() {
         <div style={{ padding: 12, color: "var(--down)" }}>{loadErr}</div>
       ) : null}
 
-      <div className="dashboard-grid">
+      <div
+        className={`dashboard-grid${isMobile ? " dashboard-grid--mobile" : ""}${isMobile && mobileChartPanelOpen && selected ? " dashboard-grid--mobile-chart-open" : ""}`}
+      >
         <div className="panel dashboard-panel-watchlist" data-tour="watchlist-panel">
           <div className="panel-h" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <span>관심종목</span>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {isMobile && selected && !mobileChartPanelOpen ? (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ fontSize: 12 }}
+                  onClick={() => setMobileChartPanelOpen(true)}
+                  aria-label="가격 차트 패널 열기"
+                >
+                  차트 보기
+                </button>
+              ) : null}
               <button type="button" className="btn btn-secondary" style={{ fontSize: 12 }} onClick={openColumnDialog}>
                 컬럼설정
               </button>
@@ -1369,63 +1451,105 @@ export function DashboardPage() {
             </div>
           </div>
           </div>
-          <div className="dashboard-watchlist-chart-section" data-tour="chart-area">
-          {selected && !chartCollapsed ? (
-            <div
-              style={{
-                borderTop: "1px solid var(--border)",
-                flex: isMobile ? "1 1 auto" : undefined,
-                minHeight: isMobile ? 0 : undefined,
-                minWidth: 0,
-                background: "var(--background)",
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <div
-                style={{
-                  padding: 12,
-                  paddingTop: 8,
-                  flex: 1,
-                  minHeight: 0,
-                  minWidth: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                }}
-              >
-                <PriceChartPanel
-                  stockId={selected.id}
-                  stockName={selected.name}
-                  stockCode={selected.code}
-                  industryMajorName={selected.industryMajorName}
-                  themeNames={selected.themes.map((t) => t.name)}
-                  liveQuote={quotes.get(selected.code)}
-                  fillHeight={isMobile}
-                  compactHeader={isMobile}
-                  onFold={() => setChartCollapsed(true)}
-                />
-              </div>
+          {!isMobile ? (
+            <div className="dashboard-watchlist-chart-section" data-tour="chart-area">
+              {selected && !chartCollapsed ? (
+                <div
+                  style={{
+                    borderTop: "1px solid var(--border)",
+                    minWidth: 0,
+                    background: "var(--background)",
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: 12,
+                      paddingTop: 8,
+                      flex: 1,
+                      minHeight: 0,
+                      minWidth: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
+                    <PriceChartPanel
+                      stockId={selected.id}
+                      stockName={selected.name}
+                      stockCode={selected.code}
+                      industryMajorName={selected.industryMajorName}
+                      themeNames={selected.themes.map((t) => t.name)}
+                      liveQuote={quotes.get(selected.code)}
+                      fillHeight={false}
+                      compactHeader={false}
+                      onFold={() => setChartCollapsed(true)}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    borderTop: "1px solid var(--border)",
+                    padding: 12,
+                    fontSize: 12,
+                    color: "var(--muted-foreground)",
+                    minWidth: 0,
+                  }}
+                >
+                  {selected
+                    ? "차트를 접었습니다. 종목을 다시 선택하면 차트가 다시 열립니다."
+                    : "종목을 선택하면 가격 추이 차트(분·일·월·년)가 표시됩니다."}
+                </div>
+              )}
             </div>
-          ) : (
-            <div
-              style={{
-                borderTop: "1px solid var(--border)",
-                padding: 12,
-                fontSize: 12,
-                color: "var(--muted-foreground)",
-                flex: isMobile ? "1 1 auto" : undefined,
-                minHeight: isMobile ? 0 : undefined,
-                minWidth: 0,
-              }}
-            >
-              {selected
-                ? "차트를 접었습니다. 종목을 다시 선택하면 차트가 다시 열립니다."
-                : "종목을 선택하면 가격 추이 차트(분·일·월·년)가 표시됩니다."}
-            </div>
-          )}
-          </div>
+          ) : null}
           </div>
         </div>
+
+        {isMobile && selected && mobileChartPanelOpen ? (
+          <div ref={mobileChartPanelRef} className="panel dashboard-panel-chart" data-tour="chart-area">
+            <div
+              className="panel-h"
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}
+            >
+              <span>가격 차트</span>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ fontSize: 12 }}
+                onClick={() => setMobileChartPanelOpen(false)}
+                aria-label="차트 패널 닫기"
+              >
+                차트 접기
+              </button>
+            </div>
+            <div
+              className="panel-b dashboard-panel-chart-body"
+              style={{
+                flex: 1,
+                minHeight: 0,
+                minWidth: 0,
+                display: "flex",
+                flexDirection: "column",
+                padding: 12,
+                paddingTop: 8,
+              }}
+            >
+              <PriceChartPanel
+                stockId={selected.id}
+                stockName={selected.name}
+                stockCode={selected.code}
+                industryMajorName={selected.industryMajorName}
+                themeNames={selected.themes.map((t) => t.name)}
+                liveQuote={quotes.get(selected.code)}
+                fillHeight
+                compactHeader
+                onFold={() => setMobileChartPanelOpen(false)}
+              />
+            </div>
+          </div>
+        ) : null}
 
         {!isMobile ? <div className="panel dashboard-panel-theme">
           <div className="panel-h">테마</div>
@@ -1500,7 +1624,11 @@ export function DashboardPage() {
           </div>
         </div>
       </div>
-      <DashboardOnboardingTour open={tourOpen} onFinish={finishTour} />
+      <DashboardOnboardingTour
+        open={tourOpen}
+        onFinish={finishTour}
+        skipChartStep={isMobile && !mobileChartPanelOpen}
+      />
     </div>
   );
 }

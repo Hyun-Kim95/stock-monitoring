@@ -48,13 +48,13 @@ const STEPS: TourStep[] = [
   {
     id: "watchlist",
     title: "관심종목",
-    body: "표에서 종목을 누르면 선택되고, 아래 차트·뉴스가 바뀝니다. 컬럼·종목 추가는 패널 제목 오른쪽 버튼입니다.",
+    body: "표에서 종목을 누르면 선택되고 뉴스가 바뀝니다. 좁은 화면에서는「차트 보기」로 가격 차트 패널을 열 수 있습니다. 컬럼·종목 추가는 제목 오른쪽 버튼입니다.",
     targetSelector: "[data-tour=\"watchlist-panel\"]",
   },
   {
     id: "chart",
     title: "가격 차트",
-    body: "봉 단위·봉 개수를 바꿀 수 있습니다. 모바일에서는 차트를 넓게 쓰도록 상단 요약을 줄였습니다.",
+    body: "봉 단위·봉 개수를 바꿀 수 있습니다. 좁은 화면에서는 관심종목과 뉴스 사이 패널로 열립니다.",
     targetSelector: "[data-tour=\"chart-area\"]",
   },
   {
@@ -84,10 +84,11 @@ function useIsDesktop980(): boolean {
   return desktop;
 }
 
-function filterSteps(isDesktop: boolean): TourStep[] {
+function filterSteps(isDesktop: boolean, skipChartStep: boolean): TourStep[] {
   return STEPS.filter((s) => {
     if (s.minWidth != null && !isDesktop) return false;
     if (s.maxWidth != null && isDesktop) return false;
+    if (skipChartStep && s.id === "chart") return false;
     return true;
   });
 }
@@ -105,12 +106,15 @@ function spotlightClipPath(rect: DOMRect): string {
 export function DashboardOnboardingTour({
   open,
   onFinish,
+  skipChartStep = false,
 }: {
   open: boolean;
   onFinish: () => void;
+  /** 모바일에서 차트 패널이 닫혀 있으면 chart 단계 생략(DOM에 타깃 없음) */
+  skipChartStep?: boolean;
 }) {
   const isDesktop = useIsDesktop980();
-  const steps = useMemo(() => filterSteps(isDesktop), [isDesktop]);
+  const steps = useMemo(() => filterSteps(isDesktop, skipChartStep), [isDesktop, skipChartStep]);
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
