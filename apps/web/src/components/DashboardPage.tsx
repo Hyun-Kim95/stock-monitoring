@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApiError, apiGet, apiSend } from "@/lib/api-client";
 import {
   DASHBOARD_OPEN_STOCK_CHART,
@@ -243,6 +243,10 @@ export function DashboardPage() {
   const [mobileChartPanelOpen, setMobileChartPanelOpen] = useState(false);
   const [mobileChartAutoShow, setMobileChartAutoShow] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const dashboardRootRef = useRef<HTMLDivElement>(null);
+  const dashboardHeaderRef = useRef<HTMLElement>(null);
+  const watchlistPanelHeadRef = useRef<HTMLDivElement>(null);
+  const newsPanelRef = useRef<HTMLDivElement>(null);
   const mobileChartPanelRef = useRef<HTMLDivElement>(null);
   const [visibleColumns, setVisibleColumns] = useState<ColumnKey[]>(DEFAULT_VISIBLE_COLUMNS);
   const addStockDialogRef = useRef<HTMLDialogElement>(null);
@@ -320,7 +324,51 @@ export function DashboardPage() {
     requestAnimationFrame(() => {
       el.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
     });
-  }, [isMobile, mobileChartPanelOpen, selectedId]);
+  }, [isMobile, mobileChartPanelOpen]);
+
+  useLayoutEffect(() => {
+    const root = dashboardRootRef.current;
+    if (!root) return;
+    if (!isMobile) {
+      root.style.removeProperty("--dashboard-sticky-header-h");
+      root.style.removeProperty("--dashboard-sticky-watchlist-h");
+      return;
+    }
+    const header = dashboardHeaderRef.current;
+    const panelHead = watchlistPanelHeadRef.current;
+    if (!header) return;
+    const apply = () => {
+      const hh = Math.ceil(header.getBoundingClientRect().height);
+      root.style.setProperty("--dashboard-sticky-header-h", `${hh}px`);
+      if (panelHead) {
+        const ph = Math.ceil(panelHead.getBoundingClientRect().height);
+        root.style.setProperty("--dashboard-sticky-watchlist-h", `${ph}px`);
+      } else {
+        root.style.removeProperty("--dashboard-sticky-watchlist-h");
+      }
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(header);
+    if (panelHead) ro.observe(panelHead);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty("--dashboard-sticky-header-h");
+      root.style.removeProperty("--dashboard-sticky-watchlist-h");
+    };
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (!isMobile || !selectedId) return;
+    const el = newsPanelRef.current;
+    if (!el) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const delay = mobileChartPanelOpen ? 150 : 0;
+    const tid = window.setTimeout(() => {
+      el.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+    }, delay);
+    return () => clearTimeout(tid);
+  }, [isMobile, selectedId, mobileChartPanelOpen, newsLoading]);
 
   useEffect(() => {
     if (!selectedId) setMobileChartPanelOpen(false);
@@ -898,8 +946,8 @@ export function DashboardPage() {
   };
 
   return (
-    <div className="dashboard-root">
-      <header className="dashboard-header">
+    <div ref={dashboardRootRef} className="dashboard-root">
+      <header ref={dashboardHeaderRef} className="dashboard-header">
         <div className="dashboard-header-top">
           <div className="dashboard-header-title-row">
             <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: "1 1 auto" }}>
@@ -1158,7 +1206,11 @@ export function DashboardPage() {
         className={`dashboard-grid${isMobile ? " dashboard-grid--mobile" : ""}${isMobile && mobileChartPanelOpen && selected ? " dashboard-grid--mobile-chart-open" : ""}`}
       >
         <div className="panel dashboard-panel-watchlist" data-tour="watchlist-panel">
-          <div className="panel-h" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <div
+            ref={watchlistPanelHeadRef}
+            className="panel-h"
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
+          >
             <span>관심종목</span>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
               {isMobile && selected && !mobileChartPanelOpen ? (
@@ -1595,7 +1647,7 @@ export function DashboardPage() {
           </div>
         </div> : null}
 
-        <div className="panel dashboard-panel-news" data-tour="news-panel">
+        <div ref={newsPanelRef} className="panel dashboard-panel-news" data-tour="news-panel">
           <div className="panel-h">관련 뉴스</div>
           <div style={{ padding: "0 12px 6px", fontSize: 11, color: "var(--muted-foreground)" }}>
             최근 약 3개월(90일) 이내 기사만 표시합니다.

@@ -572,6 +572,39 @@
       min-height: auto;
       align-content: start;
     }
+    /* 모바일: document 스크롤 기준 sticky — 세로 overflow 끊김 제거(가로는 table-wrap·body에서만) */
+    .dashboard-grid--mobile .dashboard-panel-watchlist.panel {
+      overflow: visible;
+    }
+    .dashboard-grid--mobile .dashboard-watchlist-body {
+      overflow-x: hidden;
+      overflow-y: visible;
+    }
+    .dashboard-grid--mobile .dashboard-watchlist-scroll {
+      overflow-x: hidden;
+      overflow-y: visible;
+    }
+    .dashboard-grid--mobile .dashboard-watchlist-scroll > .dashboard-watchlist-panel-b {
+      overflow: visible;
+      max-height: none;
+    }
+    .dashboard-header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding-top: env(safe-area-inset-top, 0px);
+    }
+    .dashboard-grid--mobile .dashboard-panel-watchlist > .panel-h {
+      position: sticky;
+      top: var(--dashboard-sticky-header-h, 120px);
+      z-index: 45;
+      background: var(--card);
+      box-shadow: 0 1px 0 var(--border);
+    }
+    .dashboard-grid--mobile .data-table-watchlist thead th {
+      top: calc(var(--dashboard-sticky-header-h, 120px) + var(--dashboard-sticky-watchlist-h, 48px));
+      z-index: 44;
+    }
     /* 대시보드가 아닌 ≤979 그리드(방어적) */
     .dashboard-grid:not(.dashboard-grid--mobile) {
       grid-template-rows: minmax(0, 1.1fr) minmax(0, 0.9fr);
