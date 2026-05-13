@@ -562,8 +562,23 @@
      * 차트가 그려질 때 패널 전체에 세로 스크롤이 생기고 시간축이 아래로 밀림.
      * 가로 넘침은 min-width:0 체인·표 영역 overflow로 처리하고, 세로는 .dashboard-watchlist-body overflow:hidden으로 캡슐화.
      */
-    .dashboard-grid {
+    /* 모바일: 뷰포트 고정 해제 → 문서 스크롤로 패널이 한 화면 안에서만 경쟁하지 않음 */
+    .dashboard-root {
+      height: auto;
+      min-height: 100dvh;
+    }
+    .dashboard-grid.dashboard-grid--mobile {
+      flex: 0 0 auto;
+      min-height: auto;
+      align-content: start;
+    }
+    /* 대시보드가 아닌 ≤979 그리드(방어적) */
+    .dashboard-grid:not(.dashboard-grid--mobile) {
       grid-template-rows: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    }
+    /* 모바일 차트 닫힘: 행 높이는 콘텐츠·최소값 기준, 뉴스 행은 기존 상한 유지 */
+    .dashboard-grid.dashboard-grid--mobile:not(.dashboard-grid--mobile-chart-open) {
+      grid-template-rows: minmax(min(36dvh, 300px), auto) minmax(120px, min(34dvh, 280px));
     }
     .dashboard-watchlist-chart-section {
       flex: 1 1 0;
@@ -575,20 +590,26 @@
     }
     .dashboard-grid--mobile .dashboard-panel-chart {
       grid-column: 1 / -1;
+      height: auto;
     }
-    /* 차트 열림 3행: 관심종목 비중 유지, 차트 확대, 뉴스는 상한+내부 스크롤 */
+    /* 차트 열림 3행: fr 경쟁 제거, 차트 행은 dvh·clamp로 확보 후 스크롤로 뉴스 */
     .dashboard-grid--mobile.dashboard-grid--mobile-chart-open {
-      grid-template-rows: minmax(0, 0.95fr) minmax(300px, 1.55fr) minmax(100px, min(18dvh, 168px));
+      grid-template-rows: minmax(min(32dvh, 260px), auto) minmax(clamp(320px, 55dvh, 560px), auto) auto;
+    }
+    .dashboard-grid--mobile.dashboard-grid--mobile-chart-open .dashboard-panel-chart {
+      min-height: clamp(320px, 55dvh, 560px);
     }
   }
   /* 좁은 폰(한 열): 뉴스 행 높이 상한 등 */
   @media (max-width: 639px) {
-    .dashboard-grid {
-      /* 뉴스 패널 행 높이 상한 → 위 행(관심종목)에 남는 세로 공간 확보 */
-      grid-template-rows: minmax(0, 1fr) minmax(120px, min(34dvh, 280px));
+    .dashboard-grid.dashboard-grid--mobile:not(.dashboard-grid--mobile-chart-open) {
+      grid-template-rows: minmax(min(34dvh, 280px), auto) minmax(120px, min(34dvh, 280px));
     }
     .dashboard-grid--mobile.dashboard-grid--mobile-chart-open {
-      grid-template-rows: minmax(0, 0.92fr) minmax(280px, 1.5fr) minmax(96px, min(16dvh, 150px));
+      grid-template-rows: minmax(min(30dvh, 240px), auto) minmax(clamp(300px, 50dvh, 480px), auto) auto;
+    }
+    .dashboard-grid--mobile.dashboard-grid--mobile-chart-open .dashboard-panel-chart {
+      min-height: clamp(300px, 50dvh, 480px);
     }
   }
   @media (min-width: 640px) and (max-width: 979px) {
