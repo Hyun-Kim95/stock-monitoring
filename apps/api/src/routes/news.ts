@@ -5,7 +5,7 @@ import { buildNaverNewsQuery, fetchNaverNews } from "../modules/news/naver-news.
 import type { NewsMemoryCache } from "../modules/news/news-cache.js";
 import {
   applyNewsRules,
-  dedupeNewsByUrl,
+  dedupeNewsItems,
   filterNewsPublishedWithinDays,
 } from "../modules/news/process.js";
 import { trySyncStockOfficialName } from "../lib/naver-official-name-sync.js";
@@ -58,7 +58,7 @@ export async function registerNewsRoutes(app: FastifyInstance, ctx: Ctx) {
     const cached = newsCache.get(stock.id);
     if (cached) {
       const filtered = filterNewsPublishedWithinDays(cached, NEWS_MAX_AGE_DAYS);
-      return { news: filtered.slice(0, limit) };
+      return { news: dedupeNewsItems(filtered).slice(0, limit) };
     }
 
     const rules = await prisma.newsSourceRule.findMany({
@@ -94,7 +94,7 @@ export async function registerNewsRoutes(app: FastifyInstance, ctx: Ctx) {
       items = buildMockNewsForStock(stock, limit);
     }
     items = filterNewsPublishedWithinDays(items, NEWS_MAX_AGE_DAYS);
-    items = dedupeNewsByUrl(items);
+    items = dedupeNewsItems(items);
     items = applyNewsRules(items, ruleInput, stock.id);
     items = items.slice(0, limit);
 

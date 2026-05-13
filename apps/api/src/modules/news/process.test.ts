@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { applyNewsRules, dedupeNewsByUrl, filterNewsPublishedWithinDays } from "./process.js";
+import {
+  applyNewsRules,
+  dedupeNewsByUrl,
+  dedupeNewsItems,
+  dedupeNewsByTitleAndMinute,
+  filterNewsPublishedWithinDays,
+  normalizeNewsUrlForDedupe,
+} from "./process.js";
 
 describe("dedupeNewsByUrl", () => {
   it("URL 중복 제거", () => {
@@ -9,6 +16,65 @@ describe("dedupeNewsByUrl", () => {
       { id: "3", title: "c", source: "s", publishedAt: "", url: "https://x/2" },
     ];
     expect(dedupeNewsByUrl(items)).toHaveLength(2);
+  });
+
+  it("http/https·www·추적 파라미터 차이는 동일 URL로 본다", () => {
+    const items = [
+      {
+        id: "1",
+        title: "t",
+        source: "s",
+        publishedAt: "2026-01-01T00:00:00.000Z",
+        url: "http://www.Example.COM/path/?utm_source=x&id=1",
+      },
+      {
+        id: "2",
+        title: "t",
+        source: "s",
+        publishedAt: "2026-01-01T00:00:00.000Z",
+        url: "https://example.com/path/?id=1",
+      },
+    ];
+    expect(dedupeNewsByUrl(items)).toHaveLength(1);
+  });
+});
+
+describe("normalizeNewsUrlForDedupe", () => {
+  it("호스트·스킴·www 정규화", () => {
+    expect(normalizeNewsUrlForDedupe("HTTP://WWW.FOO.bar/a/")).toBe("https://foo.bar/a");
+  });
+});
+
+describe("dedupeNewsByTitleAndMinute", () => {
+  it("같은 분·같은 제목이면 URL이 달라도 한 건", () => {
+    const t = "2026-05-01T12:34:56.000Z";
+    const items = [
+      { id: "1", title: "동일 헤드라인", source: "s", publishedAt: t, url: "https://press.example/a" },
+      { id: "2", title: "동일 헤드라인", source: "s", publishedAt: t, url: "https://n.news.naver.com/m/article/1" },
+    ];
+    expect(dedupeNewsByTitleAndMinute(items)).toHaveLength(1);
+  });
+
+  it("같은 제목이라도 분이 다르면 유지", () => {
+    const items = [
+      { id: "1", title: "헤드", source: "s", publishedAt: "2026-05-01T12:34:00.000Z", url: "https://a/1" },
+      { id: "2", title: "헤드", source: "s", publishedAt: "2026-05-01T12:35:00.000Z", url: "https://a/2" },
+    ];
+    expect(dedupeNewsByTitleAndMinute(items)).toHaveLength(2);
+  });
+});
+
+describe("dedupeNewsItems", () => {
+  it("URL 단계 후 제목+분 단계까지 적용", () => {
+    const t = "2026-06-01T08:00:00.000Z";
+    const items = [
+      { id: "1", title: "K 뉴스", source: "s", publishedAt: t, url: "https://x.com/a?utm=1" },
+      { id: "2", title: "K 뉴스", source: "s", publishedAt: t, url: "https://x.com/a" },
+      { id: "3", title: "K 뉴스", source: "s", publishedAt: t, url: "https://other.com/b" },
+    ];
+    const out = dedupeNewsItems(items);
+    expect(out).toHaveLength(1);
+    expect(out[0].url).toBe("https://x.com/a?utm=1");
   });
 });
 

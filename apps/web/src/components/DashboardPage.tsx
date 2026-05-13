@@ -224,6 +224,7 @@ export function DashboardPage() {
   const [sessionFilter, setSessionFilter] = useState("ALL");
   const [nxtFilter, setNxtFilter] = useState("ALL");
   const [news, setNews] = useState<NewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
   const [newsErr, setNewsErr] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [stocksLoading, setStocksLoading] = useState(true);
@@ -713,10 +714,13 @@ export function DashboardPage() {
   useEffect(() => {
     if (!selectedId) {
       setNews([]);
+      setNewsLoading(false);
       return;
     }
     let cancelled = false;
     setNewsErr(null);
+    setNews([]);
+    setNewsLoading(true);
     apiGet<{ news: NewsItem[] }>(`/stocks/${selectedId}/news`)
       .then((d) => {
         if (!cancelled) {
@@ -734,6 +738,9 @@ export function DashboardPage() {
         } else {
           setNewsErr("뉴스를 불러오지 못했습니다.");
         }
+      })
+      .finally(() => {
+        if (!cancelled) setNewsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -1137,7 +1144,7 @@ export function DashboardPage() {
               조건 초기화
             </button>
             <button type="button" className="primary" onClick={closeFilterDialog}>
-              적용·닫기
+              적용
             </button>
           </div>
         </div>
@@ -1204,7 +1211,7 @@ export function DashboardPage() {
                   기본값으로 복원
                 </button>
                 <button type="button" className="primary" onClick={closeColumnDialog}>
-                  적용·닫기
+                  적용
                 </button>
               </div>
             </div>
@@ -1589,6 +1596,8 @@ export function DashboardPage() {
           <div className="panel-b">
             {!selectedId ? (
               <div style={{ color: "var(--muted-foreground)" }}>종목을 선택하세요.</div>
+            ) : newsLoading ? (
+              <div style={{ color: "var(--muted-foreground)" }}>뉴스를 불러오는 중…</div>
             ) : newsErr ? (
               <div style={{ color: "var(--down)" }}>{newsErr}</div>
             ) : news.length === 0 ? (
