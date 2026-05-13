@@ -1516,7 +1516,21 @@ export function DashboardPage() {
 
         {isMobile && selected && mobileChartPanelOpen ? (
           <div ref={mobileChartPanelRef} className="panel dashboard-panel-chart" data-tour="chart-area">
-            <div className="panel-h">가격 차트</div>
+            <div
+              className="panel-h"
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "nowrap" }}
+            >
+              <span>가격 차트</span>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ fontSize: 12, flexShrink: 0 }}
+                onClick={() => setMobileChartPanelOpen(false)}
+                aria-label="차트 패널 닫기"
+              >
+                차트 접기
+              </button>
+            </div>
             <div
               className="panel-b dashboard-panel-chart-body"
               style={{
@@ -1538,7 +1552,6 @@ export function DashboardPage() {
                 liveQuote={quotes.get(selected.code)}
                 fillHeight
                 compactHeader
-                onFold={() => setMobileChartPanelOpen(false)}
               />
             </div>
           </div>

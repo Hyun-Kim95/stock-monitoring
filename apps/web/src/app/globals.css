@@ -578,7 +578,7 @@
     }
     /* 차트 열림 3행: 관심종목 비중 유지, 차트 확대, 뉴스는 상한+내부 스크롤 */
     .dashboard-grid--mobile.dashboard-grid--mobile-chart-open {
-      grid-template-rows: minmax(0, 1.05fr) minmax(260px, 1.25fr) minmax(120px, min(22dvh, 200px));
+      grid-template-rows: minmax(0, 0.95fr) minmax(300px, 1.55fr) minmax(100px, min(18dvh, 168px));
     }
   }
   /* 좁은 폰(한 열): 뉴스 행 높이 상한 등 */
@@ -588,7 +588,7 @@
       grid-template-rows: minmax(0, 1fr) minmax(120px, min(34dvh, 280px));
     }
     .dashboard-grid--mobile.dashboard-grid--mobile-chart-open {
-      grid-template-rows: minmax(0, 1fr) minmax(240px, 1.2fr) minmax(100px, min(20dvh, 180px));
+      grid-template-rows: minmax(0, 0.92fr) minmax(280px, 1.5fr) minmax(96px, min(16dvh, 150px));
     }
   }
   @media (min-width: 640px) and (max-width: 979px) {
