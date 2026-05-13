@@ -605,6 +605,11 @@
       top: calc(var(--dashboard-sticky-header-h, 120px) + var(--dashboard-sticky-watchlist-h, 48px));
       z-index: 44;
     }
+    /* table-wrap의 overflow-x: auto는 자동으로 overflow-y: auto가 되어 thead sticky 범위를 표 내부로 가둠 → 모바일에서는 clip으로 끊지 않고 문서 sticky 사용 */
+    .dashboard-grid--mobile .dashboard-watchlist-table-wrap {
+      overflow-x: clip;
+      overflow-y: visible;
+    }
     /* 대시보드가 아닌 ≤979 그리드(방어적) */
     .dashboard-grid:not(.dashboard-grid--mobile) {
       grid-template-rows: minmax(0, 1.1fr) minmax(0, 0.9fr);
