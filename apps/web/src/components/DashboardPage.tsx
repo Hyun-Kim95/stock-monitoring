@@ -370,7 +370,6 @@ export function DashboardPage() {
     }, 0);
     return () => clearTimeout(tid);
     /* mobileChartPanelOpen은 의도적으로 의존성에서 제외: 차트 열림 시 뉴스로 점프 방지 */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile, selectedId, newsLoading]);
 
   useEffect(() => {
