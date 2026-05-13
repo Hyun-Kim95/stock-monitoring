@@ -545,6 +545,8 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
+    align-self: stretch;
+    height: 100%;
   }
   .dashboard-panel-chart .panel-b.dashboard-panel-chart-body {
     flex: 1 1 auto;
@@ -563,7 +565,8 @@
     .dashboard-grid {
       grid-template-rows: minmax(0, 1.1fr) minmax(0, 0.9fr);
     }
-    .dashboard-watchlist-scroll {
+    /* 차트가 패널 밖일 때: 패널 열림에서만 목록 높이 상한(목록·차트·뉴스 분할) */
+    .dashboard-grid--mobile.dashboard-grid--mobile-chart-open .dashboard-watchlist-scroll {
       flex: 0 1 auto;
       max-height: min(42vh, 360px);
     }
@@ -578,22 +581,22 @@
     .dashboard-grid--mobile .dashboard-panel-chart {
       grid-column: 1 / -1;
     }
-    /* 차트 패널이 열릴 때만 3행(목록 / 차트 / 뉴스) */
+    /* 차트 패널이 열릴 때만 3행(목록 / 차트 / 뉴스) — 차트 행 최소 높이로 세로 잘림 완화 */
     .dashboard-grid--mobile.dashboard-grid--mobile-chart-open {
-      grid-template-rows: minmax(0, 0.9fr) minmax(0, 0.68fr) minmax(0, 0.82fr);
+      grid-template-rows: minmax(0, 0.42fr) minmax(200px, 0.46fr) minmax(0, 0.82fr);
     }
   }
-  /* 좁은 폰(한 열): 목록 max-height + 뉴스 행이 차트 높이를 과도하게 잡아먹어 캔들이 위·아래로 잘리는 문제 완화 */
+  /* 좁은 폰(한 열): 뉴스 행 높이 상한 등 */
   @media (max-width: 639px) {
     .dashboard-grid {
-      /* 뉴스 패널 행 높이 상한 → 위 행(관심종목+차트)에 남는 세로 공간 확보 */
+      /* 뉴스 패널 행 높이 상한 → 위 행(관심종목)에 남는 세로 공간 확보 */
       grid-template-rows: minmax(0, 1fr) minmax(120px, min(34dvh, 280px));
     }
-    .dashboard-watchlist-scroll {
-      max-height: min(30vh, 240px);
+    .dashboard-grid--mobile.dashboard-grid--mobile-chart-open .dashboard-watchlist-scroll {
+      max-height: min(28vh, 220px);
     }
     .dashboard-grid--mobile.dashboard-grid--mobile-chart-open {
-      grid-template-rows: minmax(0, 0.78fr) minmax(0, 0.52fr) minmax(120px, min(32dvh, 260px));
+      grid-template-rows: minmax(0, 0.34fr) minmax(200px, 0.5fr) minmax(120px, min(30dvh, 260px));
     }
   }
   @media (min-width: 640px) and (max-width: 979px) {
