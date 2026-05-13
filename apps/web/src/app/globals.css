@@ -577,11 +577,12 @@
       overflow: visible;
     }
     .dashboard-grid--mobile .dashboard-watchlist-body {
-      overflow-x: hidden;
+      /* overflow-x: hidden은 scroll container를 만들어 thead sticky가 컨테이너에 가둠 → clip으로 scroll container 자체를 만들지 않음 */
+      overflow-x: clip;
       overflow-y: visible;
     }
     .dashboard-grid--mobile .dashboard-watchlist-scroll {
-      overflow-x: hidden;
+      overflow-x: clip;
       overflow-y: visible;
     }
     .dashboard-grid--mobile .dashboard-watchlist-scroll > .dashboard-watchlist-panel-b {
