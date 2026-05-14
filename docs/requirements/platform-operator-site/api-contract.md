@@ -65,6 +65,17 @@ status: active
 
 ## 엔드포인트 (MVP)
 
+### 대시보드 KPI (신설, 2026-05-14)
+
+| 메서드 | 경로 | 성공 응답 | 오류 |
+|--------|------|----------|------|
+| GET | `/platform/overview` | `{ tenantCount, newUserCountLast7d, inquiryUnansweredCount, announcementActiveCount }` (정수, 결손 시 0) | 401, 403, 429 |
+
+- `newUserCountLast7d`는 `User.createdAt` 기준 최근 7일.
+- `inquiryUnansweredCount`는 `SupportInquiry` 중 `SupportInquiryReply`가 0건인 것의 수(전 테넌트 합).
+- `announcementActiveCount`는 현재 시각이 `[startsAt, endsAt]`에 포함되고 `status = PUBLISHED`인 행의 수. 기간이 비어 있어도 `PUBLISHED`면 포함.
+- 추후 추가 KPI(시세 실패 등)는 본 표에 행을 더한다.
+
 ### 세션·운영자 확인
 
 | 상태 | 메서드 | 경로 | 설명 |
@@ -82,10 +93,11 @@ status: active
 |--------|------|------|------|
 | GET | `/platform/tenants/:tenantId` | 단건 | 401, 403, **404** |
 
-### 사용자 지원 S-01 ~ S-03
+### 사용자 지원 S-01 ~ S-03, S-07
 
 | 메서드 | 경로 | 쿼리 | 성공 | 오류 |
 |--------|------|------|------|------|
+| GET | `/platform/users` (신설, 2026-05-14) | `page`, `pageSize` | `{ users, page, pageSize, total, totalPages }` — **최근 가입 desc**. 검색은 별도 엔드포인트(`/users/search`). | 401, 403, 429 |
 | GET | `/platform/users/search` | `q`, `page`, `pageSize` — 이메일·표시명 **contains**(대소문자 무시); `q`가 UUID 형식이면 **id 일치** OR에 추가 | `{ users, page, pageSize, total, totalPages, truncated }` | 401, 403, **400**(빈 `q`), 429 |
 
 | 메서드 | 경로 | 성공 | 오류 |
@@ -96,7 +108,8 @@ status: active
 
 | 메서드 | 경로 | 쿼리 | 성공 | 오류 |
 |--------|------|------|------|------|
-| GET | `/platform/tenants/:tenantId/inquiries` | `from`, `to`, `q`, `page`, `pageSize` | 문의 목록; `from`>`to` **400** | 401, 403, **404**(tenant), 429 |
+| GET | `/platform/inquiries` (신설, 2026-05-14) | `tenantId?`, `from?`, `to?`, `q?`, `repliedOnly?`(`'true'`/`'false'`), `page`, `pageSize` | 크로스 테넌트 문의 목록 + 페이지 메타. **응답 항목에 `tenant: { id, name }` 포함**. `from`>`to` **400**. | 401, 403, **400**, 429 |
+| GET | `/platform/tenants/:tenantId/inquiries` | `from`, `to`, `q`, `page`, `pageSize` | 문의 목록(테넌트 스코프); `from`>`to` **400** | 401, 403, **404**(tenant), 429 |
 
 | 메서드 | 경로 | 성공 | 오류 |
 |--------|------|------|------|
@@ -104,7 +117,7 @@ status: active
 
 | 메서드 | 경로 | Body | 성공 | 오류 |
 |--------|------|------|------|------|
-| POST | `/platform/inquiries/:inquiryId/replies` | `{ "body": "…" }` | **201** 생성된 답변 | 401, 403, **404**, **400**(길이), **409**(60초 내 중복), 429 |
+| POST | `/platform/inquiries/:inquiryId/replies` | `{ "body": "…" }` | **201** 생성된 답변. **감사 로그 INSERT**(`INQUIRY_REPLY`)는 동일 트랜잭션(PRD §4.4 A-04). | 401, 403, **404**, **400**(길이), **409**(60초 내 중복), 429 |
 
 ### 시스템 설정 D-02
 
@@ -128,6 +141,28 @@ status: active
 |--------|------|------|------|
 | GET | `/platform/tenants/:tenantId/catalog-summary` | 종목 수·테마 수·규칙 수 등 집계만 | 전량 CRUD는 `/settings` 유지 PRD §4.3 D-03 |
 
+### 공지 N-01 ~ N-07 (신설, 2026-05-14)
+
+| 메서드 | 경로 | 쿼리 / Body | 성공 | 오류 |
+|--------|------|------------|------|------|
+| GET | `/platform/announcements` | `scope?`(`GLOBAL`/`TENANT`), `status?`(`DRAFT`/`PUBLISHED`/`ARCHIVED`), `tenantId?`, `activeOn?`(ISO), `page`, `pageSize` | `{ announcements, page, pageSize, total, totalPages }`. 항목에 `createdBy: { id, email, displayName? }`, `tenant?: { id, name }`. 정렬: `startsAt desc nulls last, createdAt desc`. | 401, 403, **400** |
+| POST | `/platform/announcements` | Body: `{ scope, tenantId?, title, body, startsAt?, endsAt?, audienceRoles?: string[], status?: 'DRAFT'\|'PUBLISHED' }` (기본 `DRAFT`) | **201** 생성. `PUBLISHED`로 생성 시 감사 로그(`ANNOUNCEMENT_PUBLISH`) 동일 트랜잭션. | 401, 403, **400**(`scope=TENANT`에 `tenantId` 누락 / 기간 역전 / 필드 길이) |
+| GET | `/platform/announcements/:id` | — | 단건. | 401, 403, **404** |
+| PUT | `/platform/announcements/:id` | Body: `{ title?, body?, startsAt?, endsAt?, audienceRoles?, status? }` (부분 수정) | 갱신본. **상태 변경 포함 시 `ANNOUNCEMENT_UPDATE`/`ANNOUNCEMENT_PUBLISH` 감사 로그** 동일 트랜잭션. | 401, 403, **400**, **404** |
+| DELETE | `/platform/announcements/:id` | — | **204**. 감사 로그(`ANNOUNCEMENT_DELETE`) 동일 트랜잭션. | 401, 403, **404** |
+
+- **`scope = TENANT`**: `tenantId` 필수. 미존재 테넌트는 **400** 또는 **404**(구현은 400으로 통일).
+- **상태 전이**: 생성 시 `DRAFT` 또는 `PUBLISHED`. 이후 PUT으로 자유 전이 가능(예: `PUBLISHED → ARCHIVED`). 노출 정책 자체는 다음 사이클.
+
+### 감사 로그 AU-01 ~ AU-04 (신설, 2026-05-14)
+
+| 메서드 | 경로 | 쿼리 | 성공 | 오류 |
+|--------|------|------|------|------|
+| GET | `/platform/audit-logs` | `actorUserId?`, `tenantId?`, `action?`, `from?`, `to?`, `page`, `pageSize` | `{ logs, page, pageSize, total, totalPages }`. 항목: `{ id, action, actor: { id, email, displayName? }, tenantId?, tenantName?, targetUserId?, inquiryId?, settingKey?, metadata?, createdAt }`. 정렬: `createdAt desc`. | 401, 403, **400**(기간 역전) |
+
+- 보존 정책: 180일(PRD §9). 자동 삭제 잡은 본 사이클 비포함.
+- 기존 스키마 재사용([packages/db/prisma/schema.prisma](../../../packages/db/prisma/schema.prisma) `PlatformAuditLog`).
+
 ---
 
 ## 오류 코드 (초기 권장 집합)
@@ -150,8 +185,8 @@ status: active
 
 | 구분 | 예시 경로 | `tenantId` |
 |------|-----------|------------|
-| **전역** | `GET /platform/tenants`, `GET /platform/users/search`, `GET /platform/users/:userId`, `GET /platform/inquiries/:inquiryId` | 경로에 없음(문의 단건은 **플랫폼 권한으로 크로스 테넌트** 조회). |
-| **테넌트 스코프** | `GET /platform/tenants/:tenantId/inquiries`, `.../settings`, `.../quote-health` | **경로에 필수**. |
+| **전역** | `GET /platform/overview`, `GET /platform/tenants`, `GET /platform/users`, `GET /platform/users/search`, `GET /platform/users/:userId`, `GET /platform/inquiries`, `GET /platform/inquiries/:inquiryId`, `GET /platform/announcements`, `GET /platform/audit-logs` | 경로에 없음. 필요 시 **쿼리** `tenantId`로 필터(예: `inquiries`, `announcements`, `audit-logs`). |
+| **테넌트 스코프** | `GET /platform/tenants/:tenantId/inquiries`, `.../settings`, `.../quote-health`, `.../catalog-summary` | **경로에 필수**. |
 
 ## 응답 필드 메모 (초안)
 
@@ -180,3 +215,4 @@ status: active
 | 2026-05-11 | `RATE_LIMIT` 통일, CSRF·500 행, 전역/테넌트 경로 표, replies 메모, 로드맵 API, 미확정 행(페이지 범위), UPSTREAM 행 분리, 테넌트 식별 권장(경로 우선). |
 | 2026-05-11 | 미확정 표에 **추천안** 열 추가(PRD §9와 동기). |
 | 2026-05-12 | PRD §9 **확정** 반영, 구현 SSOT로 전환, `page`/`pageSize` 클램프·`truncated`·설정 PUT 본문·답변 409·quote-health 상한·감사 정책 명시. |
+| 2026-05-14 | **IA 재구성**에 따른 신규 5종 추가 — `GET /platform/overview`, `GET /platform/users`(기본 목록), `GET /platform/inquiries`(크로스 테넌트), `Announcements` CRUD, `GET /platform/audit-logs`. 전역/테넌트 경로 표 갱신, 쓰기-감사 원자성·공지 정렬·게시 기간 검증 반영. |

@@ -26,7 +26,7 @@ import { registerNewsRoutes } from "./routes/news.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerPreferenceRoutes } from "./routes/preferences.js";
 import { registerInquiryRoutes } from "./routes/inquiries.js";
-import { registerPlatformRoutes } from "./routes/platform.js";
+import { registerPlatformRoutes } from "./routes/platform/index.js";
 import { createQuoteHistoryRecorder } from "./modules/history/quote-history.js";
 import { runStartupMinuteChartPrewarmQueue, runStartupQuoteHistoryPrep } from "./modules/history/startup-quote-history.js";
 import { syncOfficialNamesBatch } from "./lib/naver-official-name-sync.js";

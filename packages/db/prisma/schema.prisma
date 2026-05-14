@@ -24,6 +24,17 @@ enum OAuthProvider {
   NAVER
 }
 
+enum AnnouncementScope {
+  GLOBAL
+  TENANT
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 model Tenant {
   id          String          @id @default(uuid())
   name        String
@@ -37,6 +48,7 @@ model Tenant {
   newsRules   NewsSourceRule[]
   settings    SystemSetting[]
   supportInquiries SupportInquiry[]
+  announcements Announcement[]
 
   @@map("tenants")
 }
@@ -58,6 +70,7 @@ model User {
   supportInquiries SupportInquiry[]
   supportInquiryReplies SupportInquiryReply[]
   platformAuditLogs PlatformAuditLog[]
+  announcements Announcement[]
 
   @@map("users")
 }
@@ -253,6 +266,30 @@ model SupportInquiryReply {
 
   @@index([inquiryId, createdAt])
   @@map("support_inquiry_replies")
+}
+
+/** 플랫폼 운영자 공지 — PRD §4.6 */
+model Announcement {
+  id             String             @id @default(uuid())
+  scope          AnnouncementScope
+  tenantId       String?            @map("tenant_id")
+  title          String
+  body           String             @db.Text
+  status         AnnouncementStatus @default(DRAFT)
+  startsAt       DateTime?          @map("starts_at")
+  endsAt         DateTime?          @map("ends_at")
+  audienceRoles  String[]           @default([]) @map("audience_roles")
+  createdById    String             @map("created_by_id")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  tenant    Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User    @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([scope, status])
+  @@index([status, startsAt(sort: Desc), endsAt(sort: Desc)])
+  @@index([tenantId, status])
+  @@map("announcements")
 }
 
 /** 플랫폼 운영자 감사 로그 — PRD §4.4 A-01, §9 동일 트랜잭션 */

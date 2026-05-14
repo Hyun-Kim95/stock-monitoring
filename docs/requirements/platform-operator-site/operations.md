@@ -50,8 +50,37 @@ status: draft
 
 ## 감사 로그·쓰기 원자성 (§8.7)
 
-**확정:** **(a)** 답변 생성·설정 갱신은 **`PlatformAuditLog` INSERT를 비즈니스 쓰기와 동일 Prisma 트랜잭션**에서 수행한다.  
+**확정:** **(a)** 답변 생성·설정 갱신·**공지 생성/수정/발행/취소/삭제**는 **`PlatformAuditLog` INSERT를 비즈니스 쓰기와 동일 Prisma 트랜잭션**에서 수행한다.  
 민감 **조회**(사용자 단건·문의 단건)는 감사를 **직후 별도 INSERT**로 남겨 가용성을 우선한다 — [api-contract.md](./api-contract.md) §9 확정 표와 동일.
+
+**보존 정책:** 본 사이클 기준 **180일**(PRD §9). 자동 삭제 잡은 별도 사이클에서 추가하며, 그 사이에는 운영자가 수동 정리하거나 보관 정책을 별도 합의한다.
+
+**감사 액션 코드(현재 사용 중)**:
+
+| 코드 | 의미 | 트랜잭션 동기 |
+|------|------|----------------|
+| `PLATFORM_SETTING_UPDATE` | 시스템 설정 PUT | 쓰기와 동일 트랜잭션 |
+| `PLATFORM_INQUIRY_REPLY` | 문의 답변 작성 | 동일 트랜잭션 |
+| `PLATFORM_INQUIRY_VIEW` | 문의 단건 조회 | 분리 INSERT(가용성 우선) |
+| `PLATFORM_USER_VIEW` | 사용자 단건 조회 | 분리 INSERT |
+| `PLATFORM_ANNOUNCEMENT_CREATE` | 공지 생성(DRAFT) | 동일 트랜잭션 |
+| `PLATFORM_ANNOUNCEMENT_PUBLISH` | 공지 발행 또는 발행 상태로 생성 | 동일 트랜잭션 |
+| `PLATFORM_ANNOUNCEMENT_UPDATE` | 공지 본문/기간 수정 | 동일 트랜잭션 |
+| `PLATFORM_ANNOUNCEMENT_ARCHIVE` | 공지 취소(아카이브) | 동일 트랜잭션 |
+| `PLATFORM_ANNOUNCEMENT_DELETE` | 공지 삭제 | 동일 트랜잭션 |
+
+## 메뉴 동선 (2026-05-14 IA 재구성)
+
+| 메뉴 | URL | 주 작업 |
+|------|-----|---------|
+| 대시보드 | `/platform` | 운영 KPI 요약 — `GET /platform/overview` |
+| 회원 | `/platform/users` | 최근 가입 desc + 검색(`/users/search`) |
+| 문의 | `/platform/inquiries` | 크로스 테넌트 통합 목록(테넌트 컬럼·필터) |
+| 공지 | `/platform/announcements`, `/platform/announcements/new`, `/platform/announcements/[id]` | 작성·수정·발행·취소(아카이브)·삭제 |
+| 테넌트 | `/platform/tenants` (+ 깊이 탐색 `/tenants/[id]`, `/settings`, `/catalog`, `/quote-health`, `/inquiries`) | 심층 진단·테넌트별 설정 |
+| 감사 로그 | `/platform/audit-logs` | 액션·테넌트·기간 필터로 운영자 액션 조회 |
+
+기존 `/platform`은 테넌트 목록으로 리다이렉트했으나 대시보드 페이지로 교체되었으니, 북마크·문서 링크가 있다면 새 경로로 갱신한다.
 
 ## 배포 전 체크리스트
 
@@ -86,3 +115,4 @@ status: draft
 | 2026-05-11 | CSRF·서브도메인·A-02·`RATE_LIMIT`·배포 체크 6번·장애 표 보강, §7 기준 추가. |
 | 2026-05-11 | 감사 트랜잭션 절에 **PRD §9 추천 (a)** 명시. |
 | 2026-05-12 | `is_platform_admin` 컬럼·부여 SQL 예시·감사 (a) 확정·조회 감사 분리 반영. |
+| 2026-05-14 | IA 재구성(대시보드·회원·문의·공지·테넌트·감사 로그) + 공지 도입에 따른 감사 액션 코드 표·메뉴 동선 표 추가, 감사 보존 180일 명시. |

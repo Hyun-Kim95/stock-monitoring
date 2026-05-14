@@ -9,7 +9,7 @@ const PAGE_SIZE = 15;
 
 type UserRow = { id: string; email: string; displayName: string | null; createdAt: string };
 
-type SearchResponse = {
+type ListResponse = {
   users: UserRow[];
   page: number;
   pageSize: number;
@@ -18,33 +18,35 @@ type SearchResponse = {
   truncated: boolean;
 };
 
-export default function PlatformUsersSearchPage() {
+export default function PlatformUsersPage() {
   const [draft, setDraft] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
-  const [data, setData] = useState<SearchResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<ListResponse | null>(null);
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!q.trim()) {
-      setData(null);
-      setErr(null);
-      setLoading(false);
-      return;
-    }
     setErr(null);
     setLoading(true);
     try {
-      const qs = new URLSearchParams({ q: q.trim(), page: String(page), pageSize: String(PAGE_SIZE) });
-      const res = await apiGet<SearchResponse>(`/platform/users/search?${qs.toString()}`);
+      const qs = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      const trimmed = q.trim();
+      const path = trimmed
+        ? `/platform/users/search?${new URLSearchParams({
+            q: trimmed,
+            page: String(page),
+            pageSize: String(PAGE_SIZE),
+          }).toString()}`
+        : `/platform/users?${qs.toString()}`;
+      const res = await apiGet<ListResponse>(path);
       setData(res);
     } catch (e) {
       setData(null);
       if (e instanceof ApiError && e.status === 400) {
-        setErr("검색어가 필요합니다.");
+        setErr("검색어가 올바르지 않습니다.");
       } else {
-        setErr(e instanceof ApiError ? `오류 ${e.status}` : "검색에 실패했습니다.");
+        setErr(e instanceof ApiError ? `오류 ${e.status}` : "목록을 불러오지 못했습니다.");
       }
     } finally {
       setLoading(false);
@@ -57,35 +59,27 @@ export default function PlatformUsersSearchPage() {
 
   function runSearch(e: React.FormEvent) {
     e.preventDefault();
-    if (!draft.trim()) {
-      setErr("검색어를 입력하세요.");
-      setData(null);
-      return;
-    }
     setPage(1);
     setQ(draft.trim());
-    setErr(null);
   }
 
   function resetFilters() {
     setDraft("");
     setQ("");
     setPage(1);
-    setData(null);
-    setErr(null);
   }
+
+  const isSearch = q.trim().length > 0;
 
   return (
     <div>
-      <h1 style={{ margin: "0 0 12px", fontSize: 20 }}>사용자 검색</h1>
+      <h1 style={{ margin: "0 0 6px", fontSize: 20 }}>회원</h1>
       <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--muted-foreground)" }}>
-        이메일·표시명·UUID 일부 검색. 결과는 서버 상한(100건)까지이며 초과 시 안내합니다.
+        검색어 없이는 최근 가입 순으로 보이고, 검색어가 있으면 이메일·표시명·UUID로 매칭합니다.
       </p>
 
       <div className="panel" style={{ padding: 12, marginBottom: 16 }}>
-        <div className="panel-h" style={{ margin: "-12px -12px 12px" }}>
-          검색
-        </div>
+        <div className="panel-h" style={{ margin: "-12px -12px 12px" }}>필터</div>
         <form
           onSubmit={(e) => void runSearch(e)}
           style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}
@@ -94,22 +88,16 @@ export default function PlatformUsersSearchPage() {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="이메일, 이름, 사용자 ID"
-            aria-label="사용자 검색어"
+            aria-label="회원 검색"
             style={{ minWidth: 220, flex: "1 1 220px" }}
           />
-          <button type="submit" className="btn">
-            검색
-          </button>
-          <button type="button" className="btn btn-secondary" onClick={resetFilters}>
-            초기화
-          </button>
+          <button type="submit" className="btn">검색</button>
+          <button type="button" className="btn btn-secondary" onClick={resetFilters}>초기화</button>
         </form>
       </div>
 
       {err ? (
-        <p role="alert" style={{ color: "var(--down)", marginBottom: 12 }}>
-          {err}
-        </p>
+        <p role="alert" style={{ color: "var(--down)", marginBottom: 12 }}>{err}</p>
       ) : null}
 
       {data?.truncated ? (
@@ -119,10 +107,12 @@ export default function PlatformUsersSearchPage() {
       ) : null}
 
       {loading ? (
-        <p style={{ color: "var(--muted-foreground)" }}>검색 중…</p>
-      ) : q && data && data.users.length === 0 ? (
-        <p style={{ color: "var(--muted-foreground)" }}>일치하는 사용자가 없습니다.</p>
-      ) : q && data && data.users.length > 0 ? (
+        <p style={{ color: "var(--muted-foreground)" }}>불러오는 중…</p>
+      ) : !data || data.users.length === 0 ? (
+        <p style={{ color: "var(--muted-foreground)" }}>
+          {isSearch ? "일치하는 회원이 없습니다." : "가입한 회원이 없습니다."}
+        </p>
+      ) : (
         <>
           <div style={{ overflowX: "auto" }}>
             <table className="data-table" style={{ width: "100%", minWidth: 520 }}>
@@ -143,7 +133,11 @@ export default function PlatformUsersSearchPage() {
                       {new Date(u.createdAt).toLocaleDateString("ko-KR")}
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <Link href={`/platform/users/${u.id}`} className="btn btn-secondary" style={{ fontSize: 12 }}>
+                      <Link
+                        href={`/platform/users/${u.id}`}
+                        className="btn btn-secondary"
+                        style={{ fontSize: 12 }}
+                      >
                         상세
                       </Link>
                     </td>
@@ -159,9 +153,7 @@ export default function PlatformUsersSearchPage() {
             onPageChange={(p) => setPage(p)}
           />
         </>
-      ) : !q ? (
-        <p style={{ color: "var(--muted-foreground)" }}>검색어를 입력한 뒤 검색을 누르세요.</p>
-      ) : null}
+      )}
     </div>
   );
 }
