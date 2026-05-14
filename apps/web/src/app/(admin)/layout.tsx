@@ -1,39 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { AdminNav } from "./AdminNav";
 import { AdminOnboardingTour } from "@/components/AdminOnboardingTour";
 import { apiSend } from "@/lib/api-client";
 import { useAdminOnboarding } from "@/hooks/useAdminOnboarding";
-import { useAuthSession } from "@/hooks/useAuthSession";
+import { useAuthSession, type SessionUser } from "@/hooks/useAuthSession";
+import { useEnforceAccess } from "@/hooks/useEnforceAccess";
+
+function isTenantAdmin(u: SessionUser): boolean {
+  return u.role === "OWNER" || u.role === "ADMIN";
+}
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, loading, refresh } = useAuthSession();
-  const canAdmin = Boolean(user && (user.role === "OWNER" || user.role === "ADMIN"));
-  const { tourOpen, openTour, finishTour } = useAdminOnboarding({ enabled: !loading && canAdmin });
+  const gate = useEnforceAccess({ loading, user, isAllowed: isTenantAdmin, refresh });
+  const canAdmin = gate === "ok";
+  const { tourOpen, openTour, finishTour } = useAdminOnboarding({ enabled: canAdmin });
 
-  useEffect(() => {
-    if (loading) return;
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-    if (user.role !== "OWNER" && user.role !== "ADMIN") {
-      router.replace("/");
-    }
-  }, [loading, router, user]);
-
-  async function logout() {
+  const logout = useCallback(async () => {
     await apiSend("/auth/logout", "POST");
     await refresh();
     router.replace("/login");
-  }
+  }, [refresh, router]);
 
-  if (loading) return <div style={{ padding: 24 }}>세션 확인 중...</div>;
-  if (!user) return null;
+  if (gate !== "ok" || !user) {
+    return <div style={{ padding: 24 }}>세션 확인 중...</div>;
+  }
 
   return (
     <div className="admin-shell">
@@ -59,7 +55,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </Link>
         <AdminNav />
         <div className="admin-sidebar-footer">
-          <button type="button" className="btn" onClick={logout} style={{ width: "100%" }}>
+          <button type="button" className="btn" onClick={() => void logout()} style={{ width: "100%" }}>
             로그아웃
           </button>
         </div>

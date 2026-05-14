@@ -1,37 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { apiSend } from "@/lib/api-client";
-import { useAuthSession } from "@/hooks/useAuthSession";
+import { useAuthSession, type SessionUser } from "@/hooks/useAuthSession";
+import { useEnforceAccess } from "@/hooks/useEnforceAccess";
 import { PlatformNav } from "./PlatformNav";
+
+function isPlatformOperator(u: SessionUser): boolean {
+  return Boolean(u.isPlatformOperator);
+}
 
 export default function PlatformLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, loading, refresh } = useAuthSession();
-  const canOperate = Boolean(user?.isPlatformOperator);
+  const gate = useEnforceAccess({ loading, user, isAllowed: isPlatformOperator, refresh });
 
-  useEffect(() => {
-    if (loading) return;
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-    if (!user.isPlatformOperator) {
-      router.replace("/");
-    }
-  }, [loading, router, user]);
-
-  async function logout() {
+  const logout = useCallback(async () => {
     await apiSend("/auth/logout", "POST");
     await refresh();
     router.replace("/login");
-  }
+  }, [refresh, router]);
 
-  if (loading) return <div style={{ padding: 24 }}>세션 확인 중...</div>;
-  if (!user || !canOperate) return null;
+  if (gate !== "ok" || !user) {
+    return <div style={{ padding: 24 }}>세션 확인 중...</div>;
+  }
 
   return (
     <div className="admin-shell">

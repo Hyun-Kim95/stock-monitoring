@@ -9,10 +9,6 @@ const InquiryCreateSchema = z.object({
   message: z.string().trim().min(1, "내용을 입력해 주세요.").max(8000),
 });
 
-const ReplyCreateSchema = z.object({
-  body: z.string().trim().min(1, "답변 내용을 입력해 주세요.").max(8000),
-});
-
 type Ctx = {
   prisma: PrismaClient;
   requireAuthPre: preHandlerHookHandler;
@@ -97,34 +93,5 @@ export async function registerInquiryRoutes(app: FastifyInstance, ctx: Ctx) {
     };
   });
 
-  app.post("/inquiries/:id/replies", { preHandler: [adminPre] }, async (request, reply) => {
-    const auth = getRequestAuth(request)!;
-    const { id } = request.params as { id: string };
-    const parsed = ReplyCreateSchema.safeParse(request.body);
-    if (!parsed.success) return sendZodError(reply, parsed.error);
-
-    const inquiry = await prisma.supportInquiry.findFirst({
-      where: { id, tenantId: auth.tenantId },
-      select: { id: true },
-    });
-    if (!inquiry) {
-      return reply.status(404).send({ error: { code: "NOT_FOUND", message: "문의를 찾을 수 없습니다." } });
-    }
-
-    const rep = await prisma.supportInquiryReply.create({
-      data: {
-        inquiryId: id,
-        authorUserId: auth.userId,
-        body: parsed.data.body,
-      },
-    });
-    return reply.status(201).send({
-      reply: {
-        id: rep.id,
-        body: rep.body,
-        createdAt: rep.createdAt.toISOString(),
-        author: { id: auth.userId, email: auth.email, displayName: auth.displayName ?? null },
-      },
-    });
-  });
+  // 운영자 답변은 플랫폼 운영자 콘솔(`POST /platform/inquiries/:inquiryId/replies`)에서만 처리한다.
 }

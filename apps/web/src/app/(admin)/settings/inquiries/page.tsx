@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, apiGet, apiSend } from "@/lib/api-client";
 
+/**
+ * 사용자 문의 화면(`/settings/inquiries`). 운영자 답변은 플랫폼 운영자 콘솔
+ * (`/platform/inquiries/[id]`)에서 처리하므로 이 화면은 답변 작성 UI를 제공하지 않는다.
+ */
+
 type Author = { id: string; email: string; displayName: string | null };
 
 type InquiryListItem = {
@@ -59,10 +64,6 @@ export default function AdminInquiriesPage() {
   const [newErr, setNewErr] = useState<string | null>(null);
   const [newDone, setNewDone] = useState(false);
 
-  const [replyBody, setReplyBody] = useState("");
-  const [replySubmitting, setReplySubmitting] = useState(false);
-  const [replyErr, setReplyErr] = useState<string | null>(null);
-
   const loadList = useCallback(async () => {
     try {
       setListErr(null);
@@ -98,8 +99,6 @@ export default function AdminInquiriesPage() {
   useEffect(() => {
     if (!selectedId) {
       setDetail(null);
-      setReplyBody("");
-      setReplyErr(null);
       return;
     }
     void loadDetail(selectedId);
@@ -133,35 +132,11 @@ export default function AdminInquiriesPage() {
     }
   }
 
-  async function submitReply(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selectedId) return;
-    setReplyErr(null);
-    setReplySubmitting(true);
-    try {
-      await apiSend(`/inquiries/${encodeURIComponent(selectedId)}/replies`, "POST", {
-        body: replyBody.trim(),
-      });
-      setReplyBody("");
-      await loadList();
-      await loadDetail(selectedId);
-    } catch (ex) {
-      if (ex instanceof ApiError) {
-        const b = ex.body as { error?: { message?: string } } | null;
-        setReplyErr(b?.error?.message ?? `답변 실패 (${ex.status})`);
-      } else {
-        setReplyErr("답변 저장에 실패했습니다.");
-      }
-    } finally {
-      setReplySubmitting(false);
-    }
-  }
-
   return (
     <div>
       <h1 style={{ margin: "0 0 12px", fontSize: 20 }}>문의하기</h1>
       <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--muted-foreground)" }}>
-        새 문의를 남기거나 목록에서 선택해 내용·답변을 확인합니다.
+        새 문의를 남기거나 목록에서 선택해 내용과 운영자의 답변을 확인합니다.
       </p>
 
       <div className="panel" style={{ padding: 12, marginBottom: 16 }}>
@@ -286,11 +261,13 @@ export default function AdminInquiriesPage() {
               >
                 {detail.message}
               </pre>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>답변</div>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>운영자 답변</div>
               {detail.replies.length === 0 ? (
-                <p style={{ fontSize: 13, color: "var(--muted-foreground)" }}>아직 답변이 없습니다.</p>
+                <p style={{ fontSize: 13, color: "var(--muted-foreground)" }}>
+                  아직 답변이 없습니다. 운영자가 답변을 등록하면 이곳에 표시됩니다.
+                </p>
               ) : (
-                <ul style={{ listStyle: "none", padding: 0, margin: "0 0 16px" }}>
+                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                   {detail.replies.map((r) => (
                     <li
                       key={r.id}
@@ -308,29 +285,6 @@ export default function AdminInquiriesPage() {
                   ))}
                 </ul>
               )}
-              <form onSubmit={(e) => void submitReply(e)}>
-                {replyErr ? (
-                  <p style={{ color: "var(--down)", fontSize: 13 }} role="alert">
-                    {replyErr}
-                  </p>
-                ) : null}
-                <div className="form-row">
-                  <label htmlFor="reply-body">답변 추가</label>
-                  <textarea
-                    id="reply-body"
-                    value={replyBody}
-                    onChange={(e) => setReplyBody(e.target.value)}
-                    rows={4}
-                    maxLength={8000}
-                    placeholder="답변 내용"
-                    disabled={replySubmitting}
-                    style={{ width: "100%", boxSizing: "border-box", resize: "vertical", fontFamily: "inherit" }}
-                  />
-                </div>
-                <button type="submit" className="primary" disabled={replySubmitting || !replyBody.trim()}>
-                  {replySubmitting ? "저장 중…" : "답변 등록"}
-                </button>
-              </form>
             </>
           ) : null}
         </div>
